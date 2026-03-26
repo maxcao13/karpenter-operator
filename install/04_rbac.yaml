@@ -64,6 +64,7 @@ rules:
   - certificates.k8s.io
   resourceNames:
   - kubernetes.io/kube-apiserver-client-kubelet
+  - kubernetes.io/kubelet-serving
   resources:
   - signers
   verbs:
@@ -93,6 +94,47 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - machine.openshift.io
+  resources:
+  - machinesets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - karpenter.sh
+  resources:
+  - nodeclaims
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - karpenter.k8s.aws
+  resources:
+  - ec2nodeclasses
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+- apiGroups:
+  - machineconfiguration.openshift.io
+  resources:
+  - machineconfigpools
+  - kubeletconfigs
+  - machineconfigs
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 - apiGroups:
   - monitoring.coreos.com
   resources:

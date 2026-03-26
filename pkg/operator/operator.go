@@ -6,9 +6,6 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 
-	awskarpenterapis "github.com/aws/karpenter-provider-aws/pkg/apis"
-	awskarpenterv1 "github.com/aws/karpenter-provider-aws/pkg/apis/v1"
-
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,11 +19,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	karpenterv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 
+	"github.com/openshift/karpenter-operator/pkg/cloudprovider"
 	"github.com/openshift/karpenter-operator/pkg/controllers/deployment"
 	"github.com/openshift/karpenter-operator/pkg/controllers/machineapprover"
+	"github.com/openshift/karpenter-operator/pkg/controllers/machineconfigpool"
+	"github.com/openshift/karpenter-operator/pkg/controllers/nodeclass"
 )
 
-func NewScheme() *runtime.Scheme {
+func newBaseScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
@@ -37,16 +37,33 @@ func NewScheme() *runtime.Scheme {
 	scheme.AddKnownTypes(karpenterGV, &karpenterv1.NodePool{}, &karpenterv1.NodePoolList{})
 	scheme.AddKnownTypes(karpenterGV, &karpenterv1.NodeClaim{}, &karpenterv1.NodeClaimList{})
 
-	awsKarpenterGV := schema.GroupVersion{Group: awskarpenterapis.Group, Version: "v1"}
-	metav1.AddToGroupVersion(scheme, awsKarpenterGV)
-	scheme.AddKnownTypes(awsKarpenterGV, &awskarpenterv1.EC2NodeClass{}, &awskarpenterv1.EC2NodeClassList{})
-
 	return scheme
 }
 
 func Run(ctx context.Context, opts Options) error {
-	scheme := NewScheme()
 	setupLog := ctrl.Log.WithName("setup")
+
+	// Discover infrastructure first so we can select the cloud provider.
+	infra, err := discoverInfrastructure(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("failed to discover infrastructure: %w", err)
+	}
+
+	provider, err := cloudprovider.GetCloudProvider(ctx, infra.Status.PlatformStatus, infra.Status.InfrastructureName, infra.Status.APIServerInternalURL)
+	if err != nil {
+		return fmt.Errorf("failed to initialize cloud provider: %w", err)
+	}
+	setupLog.Info("infrastructure",
+		"platform", infra.Status.PlatformStatus.Type,
+		"region", provider.Region(),
+		"clusterName", infra.Status.InfrastructureName,
+		"clusterEndpoint", infra.Status.APIServerInternalURL,
+	)
+
+	scheme := newBaseScheme()
+	if err := provider.AddToScheme(scheme); err != nil {
+		return fmt.Errorf("failed to add cloud provider types to scheme: %w", err)
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -59,32 +76,56 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to create manager: %w", err)
 	}
 
-	if err := discoverInfrastructure(ctx, mgr.GetAPIReader(), &opts); err != nil {
-		return fmt.Errorf("failed to discover infrastructure: %w", err)
+	clusterName := opts.ClusterName
+	if clusterName == "" {
+		clusterName = infra.Status.InfrastructureName
 	}
-	setupLog.Info("infrastructure", "region", opts.AWSRegion, "clusterName", opts.ClusterName, "clusterEndpoint", opts.ClusterEndpoint)
+	clusterEndpoint := opts.ClusterEndpoint
+	if clusterEndpoint == "" {
+		clusterEndpoint = infra.Status.APIServerInternalURL
+	}
 
 	deployReconciler := deployment.Reconciler{
 		Namespace:       opts.Namespace,
 		KarpenterImage:  opts.KarpenterImage,
-		AWSRegion:       opts.AWSRegion,
-		ClusterName:     opts.ClusterName,
-		ClusterEndpoint: opts.ClusterEndpoint,
+		ClusterName:     clusterName,
+		ClusterEndpoint: clusterEndpoint,
+		CloudProvider:   provider,
 	}
 	if err := deployReconciler.SetupWithManager(ctx, mgr); err != nil {
 		return fmt.Errorf("failed to setup karpenter deployment reconciler: %w", err)
 	}
 
-	mac := machineapprover.MachineApproverController{}
+	nodeclassReconciler := nodeclass.Reconciler{
+		InfraName:     clusterName,
+		CloudProvider: provider,
+	}
+	if err := nodeclassReconciler.SetupWithManager(ctx, mgr); err != nil {
+		return fmt.Errorf("failed to setup default nodeclass reconciler: %w", err)
+	}
+
+	mac := machineapprover.MachineApproverController{
+		CloudProvider: provider,
+	}
 	if err := mac.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("failed to setup machine approver controller: %w", err)
 	}
+
+	mcpReconciler := machineconfigpool.Reconciler{
+		CloudProvider: provider,
+	}
+	if err := mcpReconciler.SetupWithManager(ctx, mgr); err != nil {
+		return fmt.Errorf("failed to setup machineconfigpool reconciler: %w", err)
+	}
+
+	relatedObjs := relatedObjects(opts.Namespace)
+	relatedObjs = append(relatedObjs, provider.RelatedObjects()...)
 
 	statusCfg := &StatusReporterConfig{
 		OperandName:      "karpenter",
 		OperandNamespace: opts.Namespace,
 		ReleaseVersion:   opts.ReleaseVersion,
-		RelatedObjects:   relatedObjects(opts.Namespace),
+		RelatedObjects:   relatedObjs,
 	}
 	statusReporter, err := NewStatusReporter(mgr, statusCfg)
 	if err != nil {
@@ -108,29 +149,27 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// discoverInfrastructure reads the Infrastructure CR to fill in AWSRegion,
-// ClusterName, and ClusterEndpoint when not already set via environment variables.
-func discoverInfrastructure(ctx context.Context, r client.Reader, opts *Options) error {
+// discoverInfrastructure reads the Infrastructure CR. Options fields are
+// used as overrides; if unset, values come from the CR.
+func discoverInfrastructure(ctx context.Context, opts Options) (*configv1.Infrastructure, error) {
+	scheme := runtime.NewScheme()
+	_ = configv1.AddToScheme(scheme)
+
+	c, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client for infrastructure discovery: %w", err)
+	}
+
 	infra := &configv1.Infrastructure{}
-	if err := r.Get(ctx, types.NamespacedName{Name: "cluster"}, infra); err != nil {
-		return fmt.Errorf("failed to get Infrastructure CR: %w", err)
+	if err := c.Get(ctx, types.NamespacedName{Name: "cluster"}, infra); err != nil {
+		return nil, fmt.Errorf("failed to get Infrastructure CR: %w", err)
 	}
-	if opts.ClusterName == "" {
-		opts.ClusterName = infra.Status.InfrastructureName
-	}
-	if opts.AWSRegion == "" && infra.Status.PlatformStatus != nil && infra.Status.PlatformStatus.AWS != nil {
-		opts.AWSRegion = infra.Status.PlatformStatus.AWS.Region
-	}
-	if opts.ClusterEndpoint == "" {
-		opts.ClusterEndpoint = infra.Status.APIServerInternalURL
-	}
-	return nil
+	return infra, nil
 }
 
 func relatedObjects(namespace string) []configv1.ObjectReference {
 	return []configv1.ObjectReference{
 		{Group: "", Resource: "namespaces", Name: namespace},
-		{Group: "karpenter.k8s.aws", Resource: "ec2nodeclasses"},
 		{Group: "karpenter.sh", Resource: "nodepools"},
 		{Group: "karpenter.sh", Resource: "nodeclaims"},
 		{Group: "rbac.authorization.k8s.io", Resource: "clusterroles", Name: "karpenter-operator"},

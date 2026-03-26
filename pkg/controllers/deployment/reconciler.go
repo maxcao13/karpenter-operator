@@ -3,10 +3,13 @@ package deployment
 import (
 	"context"
 	"fmt"
+	"os"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,11 +23,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	"github.com/openshift/karpenter-operator/pkg/cloudprovider/types"
 )
 
 const (
 	karpenterName = "karpenter"
 )
+
+// CloudConfigProvider is the subset of cloud.CloudProvider the deployment
+// reconciler needs. Defined here to avoid importing the full cloud package.
+type CloudConfigProvider interface {
+	OperandConfig() types.OperandCloudConfig
+}
 
 // Reconciler deploys karpenter core (Deployment, ServiceAccount, Role, RoleBinding).
 // All operand resources are owned by the operator Deployment so that
@@ -34,9 +45,9 @@ type Reconciler struct {
 	Scheme          *runtime.Scheme
 	Namespace       string
 	KarpenterImage  string
-	AWSRegion       string
 	ClusterName     string
 	ClusterEndpoint string
+	CloudProvider   CloudConfigProvider
 }
 
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
@@ -57,6 +68,18 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		},
 	))); err != nil {
 		return fmt.Errorf("failed to watch Deployment: %w", err)
+	}
+
+	cloudCfg := r.CloudProvider.OperandConfig()
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(
+		func(ctx context.Context, o client.Object) []ctrl.Request {
+			if o.GetNamespace() != r.Namespace || o.GetName() != cloudCfg.CredentialsSecretName {
+				return nil
+			}
+			return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: r.Namespace, Name: karpenterName}}}
+		},
+	))); err != nil {
+		return fmt.Errorf("failed to watch credentials Secret: %w", err)
 	}
 
 	initialSync := make(chan event.GenericEvent)
@@ -99,6 +122,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	if err := r.reconcileClusterRoleBinding(ctx); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile ClusterRoleBinding: %w", err)
+	}
+
+	cloudCfg := r.CloudProvider.OperandConfig()
+	if cloudCfg.CredentialsSecretName != "" {
+		secret := &corev1.Secret{}
+		err := r.Client.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: cloudCfg.CredentialsSecretName}, secret)
+		if errors.IsNotFound(err) {
+			log.Info("Waiting for cloud credentials secret before creating operand", "secret", cloudCfg.CredentialsSecretName)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to check credentials secret: %w", err)
+		}
 	}
 
 	if err := r.reconcileDeployment(ctx, owner); err != nil {
@@ -192,9 +228,10 @@ func (r *Reconciler) reconcileClusterRole(ctx context.Context) error {
 		},
 	}
 
+	cloudCfg := r.CloudProvider.OperandConfig()
+
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cr, func() error {
-		cr.Rules = []rbacv1.PolicyRule{
-			// Core karpenter read
+		rules := []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"karpenter.sh"},
 				Resources: []string{"nodepools", "nodepools/status", "nodeclaims", "nodeclaims/status"},
@@ -225,20 +262,19 @@ func (r *Reconciler) reconcileClusterRole(ctx context.Context) error {
 				Resources: []string{"events"},
 				Verbs:     []string{"get", "list", "watch", "create", "patch"},
 			},
-			// Core karpenter write
 			{
 				APIGroups: []string{"karpenter.sh"},
-				Resources: []string{"nodeclaims", "nodeclaims/status"},
+				Resources: []string{"nodeclaims", "nodeclaims/status", "nodeclaims/finalizers"},
 				Verbs:     []string{"create", "delete", "update", "patch"},
 			},
 			{
 				APIGroups: []string{"karpenter.sh"},
-				Resources: []string{"nodepools", "nodepools/status"},
+				Resources: []string{"nodepools", "nodepools/status", "nodepools/finalizers"},
 				Verbs:     []string{"update", "patch"},
 			},
 			{
 				APIGroups: []string{""},
-				Resources: []string{"nodes"},
+				Resources: []string{"nodes", "nodes/finalizers"},
 				Verbs:     []string{"patch", "delete", "update"},
 			},
 			{
@@ -251,24 +287,14 @@ func (r *Reconciler) reconcileClusterRole(ctx context.Context) error {
 				Resources: []string{"pods"},
 				Verbs:     []string{"delete"},
 			},
-			// AWS provider read/write
-			{
-				APIGroups: []string{"karpenter.k8s.aws"},
-				Resources: []string{"ec2nodeclasses"},
-				Verbs:     []string{"get", "list", "watch"},
-			},
-			{
-				APIGroups: []string{"karpenter.k8s.aws"},
-				Resources: []string{"ec2nodeclasses", "ec2nodeclasses/status"},
-				Verbs:     []string{"patch", "update"},
-			},
-			// kube-dns service discovery
 			{
 				APIGroups: []string{""},
 				Resources: []string{"services"},
 				Verbs:     []string{"get", "list"},
 			},
 		}
+		rules = append(rules, cloudCfg.RBACRules...)
+		cr.Rules = rules
 		return nil
 	})
 	return err
@@ -304,6 +330,8 @@ func (r *Reconciler) reconcileDeployment(ctx context.Context, owner *appsv1.Depl
 		"app": karpenterName,
 	}
 
+	operatorImage := owner.Spec.Template.Spec.Containers[0].Image
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      karpenterName,
@@ -321,7 +349,7 @@ func (r *Reconciler) reconcileDeployment(ctx context.Context, owner *appsv1.Depl
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: r.karpenterPodSpec(),
+				Spec: r.karpenterPodSpec(operatorImage),
 			},
 		}
 		return controllerutil.SetControllerReference(owner, deployment, r.Scheme)
@@ -329,49 +357,53 @@ func (r *Reconciler) reconcileDeployment(ctx context.Context, owner *appsv1.Depl
 	return err
 }
 
-func (r *Reconciler) karpenterPodSpec() corev1.PodSpec {
+func (r *Reconciler) karpenterPodSpec(operatorImage string) corev1.PodSpec {
+	cloudCfg := r.CloudProvider.OperandConfig()
+
 	return corev1.PodSpec{
 		ServiceAccountName:            karpenterName,
 		TerminationGracePeriodSeconds: ptr.To(int64(10)),
+		InitContainers: []corev1.Container{
+			{
+				Name:            "check-credentials",
+				Image:           operatorImage,
+				ImagePullPolicy: operandImagePullPolicy(),
+				Command:         []string{"/usr/bin/karpenter-operator", "check-credentials"},
+				Env:             cloudCfg.Env,
+				VolumeMounts:    cloudCfg.VolumeMounts,
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("10m"),
+						corev1.ResourceMemory: resource.MustParse("30Mi"),
+					},
+				},
+			},
+		},
 		Containers: []corev1.Container{
 			{
-				Name:  karpenterName,
-				Image: r.KarpenterImage,
-				Args:  []string{"--log-level=debug"},
-				Env:   r.karpenterEnv(),
-				Ports: karpenterPorts(),
+				Name:            karpenterName,
+				Image:           r.KarpenterImage,
+				ImagePullPolicy: operandImagePullPolicy(),
+				Args:            []string{"--log-level=debug"},
+				Env:             r.karpenterEnv(cloudCfg),
+				Ports:           karpenterPorts(),
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU:    resource.MustParse("100m"),
 						corev1.ResourceMemory: resource.MustParse("256Mi"),
 					},
 				},
-				LivenessProbe:  karpenterProbe("/healthz", 8081, 60),
-				ReadinessProbe: karpenterProbe("/readyz", 8081, 10),
-				VolumeMounts: []corev1.VolumeMount{
-					{
-						Name:      "provider-creds",
-						MountPath: "/etc/provider",
-						ReadOnly:  true,
-					},
-				},
+				LivenessProbe:  karpenterLivenessProbe(),
+				ReadinessProbe: karpenterReadinessProbe(),
+				VolumeMounts:   cloudCfg.VolumeMounts,
 			},
 		},
-		Volumes: []corev1.Volume{
-			{
-				Name: "provider-creds",
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: "karpenter-credentials",
-					},
-				},
-			},
-		},
+		Volumes: cloudCfg.Volumes,
 	}
 }
 
-func (r *Reconciler) karpenterEnv() []corev1.EnvVar {
-	return []corev1.EnvVar{
+func (r *Reconciler) karpenterEnv(cloudCfg types.OperandCloudConfig) []corev1.EnvVar {
+	env := []corev1.EnvVar{
 		{
 			Name: "SYSTEM_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{
@@ -380,18 +412,14 @@ func (r *Reconciler) karpenterEnv() []corev1.EnvVar {
 				},
 			},
 		},
-		{Name: "AWS_REGION", Value: r.AWSRegion},
 		{Name: "CLUSTER_NAME", Value: r.ClusterName},
 		{Name: "CLUSTER_ENDPOINT", Value: r.ClusterEndpoint},
 		{Name: "DISABLE_WEBHOOK", Value: "true"},
 		{Name: "FEATURE_GATES", Value: "Drift=true"},
 		{Name: "HEALTH_PROBE_PORT", Value: "8081"},
-		{
-			Name:  "AWS_SHARED_CREDENTIALS_FILE",
-			Value: "/etc/provider/credentials",
-		},
-		{Name: "AWS_SDK_LOAD_CONFIG", Value: "true"},
 	}
+	env = append(env, cloudCfg.Env...)
+	return env
 }
 
 func karpenterPorts() []corev1.ContainerPort {
@@ -401,17 +429,36 @@ func karpenterPorts() []corev1.ContainerPort {
 	}
 }
 
-func karpenterProbe(path string, port int, periodSeconds int32) *corev1.Probe {
+func karpenterLivenessProbe() *corev1.Probe {
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
-				Path: path,
-				Port: intstr.FromInt32(int32(port)),
+				Path: "/healthz",
+				Port: intstr.FromInt32(8081),
 			},
 		},
-		PeriodSeconds:    periodSeconds,
-		SuccessThreshold: 1,
-		FailureThreshold: 3,
-		TimeoutSeconds:   5,
+		InitialDelaySeconds: 30,
+		TimeoutSeconds:      30,
 	}
+}
+
+func karpenterReadinessProbe() *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/readyz",
+				Port: intstr.FromInt32(8081),
+			},
+		},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      30,
+	}
+}
+
+// TODO(dev): remove before GA — this is only for dev/test iteration with :latest tags.
+func operandImagePullPolicy() corev1.PullPolicy {
+	if v := os.Getenv("DEV_IMAGE_PULL_POLICY"); v == "Always" {
+		return corev1.PullAlways
+	}
+	return corev1.PullIfNotPresent
 }

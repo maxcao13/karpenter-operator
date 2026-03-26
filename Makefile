@@ -76,24 +76,31 @@ docker-push: ## Push docker image with the operator.
 ##@ Deployment
 
 # Dev deploy configuration — override on the command line:
-#   make deploy IMG=quay.io/you/karpenter-operator:dev OPERAND_IMG=quay.io/you/karpenter:dev CLUSTER_NAME=my-cluster AWS_REGION=us-east-1
+#   make deploy IMG=quay.io/you/karpenter-operator:dev OPERAND_IMG=quay.io/you/karpenter:dev CLUSTER_NAME=my-cluster
+#   make deploy DEV=true  — also sets imagePullPolicy: Always for rapid iteration with :latest tags
 CLUSTER_NAME ?=
-AWS_REGION   ?=
+# TODO: remove DEV flag before GA — imagePullPolicy should not be Always in production
+DEV ?=
 
 .PHONY: deploy
-deploy: ## Deploy operator to the K8s cluster (patches IMG/OPERAND_IMG/CLUSTER_NAME/AWS_REGION into manifests).
+deploy: ## Deploy operator to the K8s cluster (patches IMG/OPERAND_IMG/CLUSTER_NAME into manifests).
 	@mkdir -p _deploy
 	@cp install/*.yaml _deploy/
 	@sed -i 's|image: quay.io/openshift/origin-karpenter-operator:.*|image: $(IMG)|' _deploy/05_deployment.yaml
 	@sed -i 's|value: quay.io/openshift/origin-karpenter:.*|value: $(OPERAND_IMG)|' _deploy/05_deployment.yaml
 	@sed -i '/name: CLUSTER_NAME/{n;s|value: ".*"|value: "$(CLUSTER_NAME)"|}' _deploy/05_deployment.yaml
-	@sed -i '/name: AWS_REGION/{n;s|value: ".*"|value: "$(AWS_REGION)"|}' _deploy/05_deployment.yaml
-	kubectl apply --server-side -f _deploy/00_namespace.yaml
-	kubectl apply --server-side -f _deploy/
+	@if [ "$(DEV)" = "true" ]; then \
+		sed -i '/- name: karpenter-operator$$/a\        imagePullPolicy: Always' _deploy/05_deployment.yaml; \
+		sed -i '/name: KARPENTER_IMAGE/i\        - name: DEV_IMAGE_PULL_POLICY\n          value: "Always"' _deploy/05_deployment.yaml; \
+	fi
+	kubectl apply --server-side --force-conflicts -f _deploy/00_namespace.yaml
+	kubectl apply --server-side --force-conflicts -f _deploy/
 	@rm -rf _deploy
 
 .PHONY: undeploy
 undeploy: ## Remove operator from the K8s cluster.
+	kubectl delete nodepools --all
+	kubectl delete nodeclaims --all
 	kubectl delete --ignore-not-found -f install/
 
 ##@ General

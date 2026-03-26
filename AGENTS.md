@@ -13,17 +13,31 @@ This operator is designed standalone-first for self-managed OpenShift. Hypershif
 ## Repository layout
 
 ```
-cmd/                        Entry point (standard flag package)
+cmd/                        Entry point (standard flag package); also hosts check-credentials subcommand
 pkg/operator/               Manager setup, options, Run(), StatusReporter
+pkg/cloudprovider/
+  cloud.go                  CloudProvider interface + GetCloudProvider platform switch
+  types/types.go            Shared types (OperandCloudConfig) used by cloud providers and controllers
+  aws/                      AWS CloudProvider implementation
+    provider.go             Constructor, Region(), NodeClassLabel()
+    nodeclass.go            ReconcileDefaultNodeClass (EC2NodeClass from MachineSets)
+    approver.go             AuthorizeCSR / GetInstanceDNSNames (EC2 DescribeInstances)
+    config.go               AddToScheme, OperandConfig, RelatedObjects
+    credentials.go          CheckCredentials — init container readiness check (EC2 DescribeInstanceTypes)
 pkg/controllers/
   deployment/               Reconciles karpenter core Deployment, SA, Role, RoleBinding (Go structs, no YAML templates)
-  machineapprover/          Auto-approves CSRs for Karpenter-provisioned nodes
+  nodeclass/                Generic controller — delegates to CloudProvider.ReconcileDefaultNodeClass
+  machineapprover/          Generic controller — delegates to CloudProvider.AuthorizeCSR
+  machineconfigpool/        Reconciles per-NodeClass MCPs + shared KubeletConfig for startup taint
 pkg/util/                   CSR parsing helpers
 pkg/version/                Build-time version injection
 install/                    CVO manifests (copied to /manifests in the container image)
-  00_namespace.yaml         Namespace (must exist before any namespaced resource)
-  00_credentials-request.yaml  AWS CredentialsRequest for CCO (must exist before Deployment)
-  01-03_*.crd.yaml          Upstream Karpenter CRDs with release annotations
+  00_namespace.yaml                     Namespace (must exist before any namespaced resource)
+  00_credentials-request-aws.yaml       AWS CredentialsRequest for karpenter operand
+  00_operator-credentials-request-aws.yaml  AWS CredentialsRequest for karpenter-operator
+  01_ec2nodeclass.crd.yaml              AWS-specific NodeClass CRD
+  02_nodepool.crd.yaml                  Upstream Karpenter CRD (cloud-agnostic)
+  03_nodeclaim.crd.yaml                 Upstream Karpenter CRD (cloud-agnostic)
   04_rbac.yaml              SA, ClusterRole, ClusterRoleBinding
   05_deployment.yaml        Operator Deployment
   06_clusteroperator.yaml   ClusterOperator CR (must come after Deployment alphabetically)
@@ -36,9 +50,30 @@ install/                    CVO manifests (copied to /manifests in the container
 - **Single-cluster model** is first-class: the operator runs on and manages the same cluster. However, the design should remain amenable to guest-cluster patterns (e.g. Hypershift) as a future goal — avoid assumptions that would make that harder.
 - **CRDs are applied by the CVO** from the `install/` directory, not programmatically at runtime by the operator.
 - **Karpenter core deployment** (the actual `karpenter` pods) is managed by the `deployment` reconciler using Go structs (following cluster-autoscaler-operator pattern — no embedded YAML templates).
-- **Machine approver** validates CSRs by cross-referencing NodeClaims with EC2 instance DNS names via the AWS API.
+- **Default NodeClass** — the `nodeclass` controller creates and maintains a well-known provider-specific NodeClass named `default` with turnkey infrastructure defaults. On AWS this is an `EC2NodeClass` that discovers subnets, security groups, IAM instance profile, AMI, block devices, and userData from existing worker MachineSets in `openshift-machine-api`. If no worker MachineSets exist, it falls back to naming conventions derived from `Infrastructure.status.infrastructureName`. The cloud-specific logic lives in `pkg/cloudprovider/aws/nodeclass.go`.
+- **Machine approver** validates CSRs by cross-referencing NodeClaims with cloud instance DNS names via the cloud provider API. On AWS this uses EC2 DescribeInstances. The cloud-specific logic lives in `pkg/cloudprovider/aws/approver.go`.
+- **MachineConfigPool integration** — the `machineconfigpool` controller creates per-NodeClass MCPs that inherit worker MachineConfigs and add a `KubeletConfig` for the `karpenter.sh/unregistered` startup taint. The NodeClass controller rewrites the Ignition userData to fetch config from the karpenter MCP's MCS endpoint. See `docs/architecture.md` for details.
+- **Credential readiness init container** — The operand Deployment includes an init container (`check-credentials`) that runs the operator binary with the `check-credentials` subcommand. It blocks the operand from starting until cloud credentials are valid (e.g. newly provisioned credentials may take seconds to propagate). The `cmd/main.go` detects the cloud provider from a canonical set of environment variables and dispatches to the provider-specific check in `pkg/cloudprovider/<provider>/credentials.go`. When adding a new cloud provider, add the `CheckCredentials` function and a corresponding `case` in `cmd/main.go`.
 - **StatusReporter** periodically checks operand health and reports Available/Progressing/Degraded/Upgradeable conditions on the `karpenter` ClusterOperator CR.
 - **Go module uses `replace` directives** pointing to OpenShift forks of `karpenter-provider-aws` and `karpenter` core.
+
+## Multi-cloud design
+
+This operator follows the [cluster-cloud-controller-manager-operator](https://github.com/openshift/cluster-cloud-controller-manager-operator) (CCCMO) pattern for multi-cloud support:
+
+- **All cloud-specific logic MUST live under `pkg/cloudprovider/<provider>/`.** Generic controllers in `pkg/controllers/` MUST NOT import cloud-provider packages directly — they interact exclusively through the `CloudProvider` interface defined in `pkg/cloudprovider/cloud.go`.
+- **Before making any change, ask: does this work for all cloud providers, or only one?** If cloud-specific, it belongs in `pkg/cloudprovider/<provider>/`.
+- **The Infrastructure CR's `status.platformStatus.type` is the single source of truth** for which cloud provider to activate at runtime. The switch lives in `pkg/cloudprovider/cloud.go:GetCloudProvider()`.
+- **CredentialsRequests and provider-specific CRDs ship as separate static manifests per cloud** (suffixed with `-aws`, `-azure`, etc.). CCO reconciles only the one matching the cluster's platform. CRDs are harmless if the platform doesn't match.
+- **When adding a new cloud provider:**
+  1. Create `pkg/cloudprovider/<provider>/` implementing `CloudProvider`.
+  2. Add the case to the switch in `pkg/cloudprovider/cloud.go`.
+  3. Add `install/00_credentials-request-<cloud>.yaml` and CRD manifest.
+  4. Add image to `image-references`.
+  5. Add cloud-specific RBAC rules for the operator's ClusterRole in `install/04_rbac.yaml` (harmless if unused).
+  6. Add `CheckCredentials` function in `pkg/cloudprovider/<provider>/credentials.go` and a corresponding `case` in `cmd/main.go:runCheckCredentials()` keyed on a canonical env var for that provider.
+
+See `docs/architecture.md` for a complete architecture walkthrough including MCO integration, CSR approval flow, and data flow diagrams.
 
 ## Build and development
 
@@ -90,8 +125,7 @@ Both copy `install/` to `/manifests` and set `LABEL io.openshift.release.operato
 | `--namespace` | CLI flag | Deployment config; downward API `$(NAMESPACE)` in manifest |
 | `RELEASE_VERSION` | Env var only | Injected by CVO; used for ClusterOperator version reporting |
 | `KARPENTER_IMAGE` | Env var only | Injected by CVO (image-references) |
-| `AWS_REGION` | Env var only | Injected by deployment manifest |
-| `CLUSTER_NAME` | Env var only | Injected by deployment manifest |
+| `CLUSTER_NAME` | Env var only | Optional override; discovered from Infrastructure CR if unset |
 | `--metrics-bind-address` | CLI flag (default `:8080`) | controller-runtime convention |
 | `--health-probe-bind-address` | CLI flag (default `:8081`) | controller-runtime convention |
 | `--leader-elect` | CLI flag (default `false`) | controller-runtime convention |
@@ -190,3 +224,4 @@ Consult these when making changes to manifests, status reporting, or upgrade beh
 - Do not hand-edit CRD spec in `install/`. They come from upstream.
 - Do not add hybrid flag-with-env-fallback for the same parameter. Flags are for deployment config and controller-runtime plumbing; env vars are for operand image, cloud config, and release version injected by CVO.
 - Do not modify `vendor/` directly. Use `make vendor`.
+- Do not import cloud-provider packages (e.g. `pkg/cloudprovider/aws`) from generic controllers. Use the `CloudProvider` interface.

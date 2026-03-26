@@ -44,8 +44,8 @@ spec:
           value: quay.io/openshift/origin-karpenter:latest
         - name: CLUSTER_NAME
           value: ""
-        - name: AWS_REGION
-          value: ""
+        - name: AWS_SHARED_CREDENTIALS_FILE
+          value: /etc/provider/credentials
         ports:
         - containerPort: 8080
           name: metrics
@@ -70,7 +70,16 @@ spec:
             path: /readyz
             port: 8081
           initialDelaySeconds: 5
+        volumeMounts:
+        - name: provider-creds
+          mountPath: /etc/provider
+          readOnly: true
         terminationMessagePolicy: FallbackToLogsOnError
+      volumes:
+      - name: provider-creds
+        secret:
+          secretName: karpenter-operator-cloud-credentials
+          optional: true
       securityContext:
         runAsNonRoot: true
       nodeSelector:

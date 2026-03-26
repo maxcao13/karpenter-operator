@@ -9,7 +9,6 @@ import (
 const (
 	ReleaseVersionEnvName  = "RELEASE_VERSION"
 	KarpenterImageEnvName  = "KARPENTER_IMAGE"
-	AWSRegionEnvName       = "AWS_REGION"
 	ClusterNameEnvName     = "CLUSTER_NAME"
 	ClusterEndpointEnvName = "CLUSTER_ENDPOINT"
 )
@@ -22,8 +21,6 @@ type Options struct {
 	ReleaseVersion string
 	// KarpenterImage is read from KARPENTER_IMAGE env var (injected by CVO/OLM).
 	KarpenterImage string
-	// AWSRegion is read from AWS_REGION env var, or discovered from Infrastructure CR.
-	AWSRegion string
 	// ClusterName is read from CLUSTER_NAME env var, or discovered from Infrastructure CR.
 	ClusterName string
 	// ClusterEndpoint is read from CLUSTER_ENDPOINT env var, or discovered from Infrastructure CR.
@@ -38,14 +35,13 @@ type Options struct {
 func (o *Options) LoadEnv() {
 	o.ReleaseVersion = os.Getenv(ReleaseVersionEnvName)
 	o.KarpenterImage = os.Getenv(KarpenterImageEnvName)
-	o.AWSRegion = os.Getenv(AWSRegionEnvName)
 	o.ClusterName = os.Getenv(ClusterNameEnvName)
 	o.ClusterEndpoint = os.Getenv(ClusterEndpointEnvName)
 }
 
 // Validate checks that required pre-Infrastructure-discovery fields are set.
-// ClusterName and AWSRegion are NOT validated here — they are discovered from
-// the Infrastructure CR in Run() if not set via env vars.
+// ClusterName is NOT validated here — it is discovered from the Infrastructure
+// CR in Run() if not set via env vars.
 func (o *Options) Validate() error {
 	var missing []string
 	if o.Namespace == "" {
