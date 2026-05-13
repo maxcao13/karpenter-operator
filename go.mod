@@ -2,7 +2,14 @@ module github.com/openshift/karpenter-operator
 
 go 1.25.7
 
-require sigs.k8s.io/controller-runtime v0.23.3
+require (
+	github.com/openshift/api v0.0.0-20260107103503-6d35063ca179
+	github.com/openshift/client-go v0.0.0-20260108185524-48f4ccfc4e13
+	k8s.io/api v0.35.2
+	k8s.io/apimachinery v0.35.2
+	k8s.io/client-go v0.35.2
+	sigs.k8s.io/controller-runtime v0.23.3
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -63,10 +70,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/api v0.35.2 // indirect
 	k8s.io/apiextensions-apiserver v0.35.2 // indirect
-	k8s.io/apimachinery v0.35.2 // indirect
-	k8s.io/client-go v0.35.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20251125145642-4e65d59e963e // indirect
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 // indirect
