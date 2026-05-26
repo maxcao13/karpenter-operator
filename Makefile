@@ -26,8 +26,54 @@ endif
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-.PHONY: all
-all: build
+## Location to install dependencies to
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+## Tool Binaries
+YQ ?= $(LOCALBIN)/yq
+GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
+HELM ?= $(LOCALBIN)/helm
+
+## Tool Versions
+YQ_VERSION            ?= v4.53.2
+GOLANGCI_LINT_VERSION ?= v2.12.1
+HELM_VERSION          ?= v4.2.0
+
+##@ Tools
+
+.PHONY: yq
+yq: $(YQ) ## Install yq locally if necessary.
+$(YQ): $(LOCALBIN)
+	@if test -s $(YQ) && $(YQ) --version 2>/dev/null | grep -q "$(YQ_VERSION)"; then \
+	  true; \
+	else \
+	  echo "Installing yq $(YQ_VERSION)..."; \
+	  GOBIN=$(LOCALBIN) GOFLAGS= go install github.com/mikefarah/yq/v4@$(YQ_VERSION); \
+	fi
+
+.PHONY: golangci-lint
+golangci-lint: $(GOLANGCI_LINT) ## Install golangci-lint locally if necessary.
+$(GOLANGCI_LINT): $(LOCALBIN)
+	@if test -s $(GOLANGCI_LINT) && $(GOLANGCI_LINT) version 2>/dev/null | grep -q "$(subst v,,$(GOLANGCI_LINT_VERSION))"; then \
+	  true; \
+	else \
+	  echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
+	  GOBIN=$(LOCALBIN) GOFLAGS= go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+	fi
+
+.PHONY: helm
+helm: $(HELM) ## Install helm locally if necessary.
+$(HELM): $(LOCALBIN)
+	@PLATFORM=$$(uname -s | tr '[:upper:]' '[:lower:]')-$$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/'); \
+	if test -s $(HELM) && $(HELM) version 2>/dev/null | grep -q "$(HELM_VERSION)"; then \
+	  true; \
+	else \
+	  echo "Installing helm $(HELM_VERSION)..."; \
+	  curl -sSL "https://get.helm.sh/helm-$(HELM_VERSION)-$${PLATFORM}.tar.gz" \
+	    | tar -xz --strip-components=1 -C $(LOCALBIN) "$${PLATFORM}/helm"; \
+	fi
 
 ##@ Development
 
@@ -39,24 +85,37 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-# TODO(maxcao13): we should consider moving to a go.tools.mod with `go tool` (e.g., karpenter upstream or hypershift).
-GOLANGCI_LINT_VERSION ?= v2.11.4
-
 .PHONY: lint
-lint: ## Run golangci-lint against code.
-	GOFLAGS= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+lint: $(GOLANGCI_LINT) ## Run golangci-lint against code.
+	GOFLAGS= $(GOLANGCI_LINT) run ./...
+
+.PHONY: manifest-diff
+manifest-diff: $(YQ) $(HELM) ## Check RBAC manifests are in sync (no writes).
+	YQ=$(YQ) HELM=$(HELM) hack/manifest-diff-upstream.sh
+	YQ=$(YQ) hack/manifest-diff.sh
+
+.PHONY: manifest-diff-sync
+manifest-diff-sync: $(YQ) $(HELM) ## Regenerate RBAC manifests from sources.
+	YQ=$(YQ) HELM=$(HELM) hack/manifest-diff-upstream.sh --sync
+	YQ=$(YQ) hack/manifest-diff.sh --sync
+
+.PHONY: verify-deps
+verify-deps: ## Verify go.mod and vendor are tidy.
+	go mod tidy
+	go mod vendor
+	git diff --exit-code go.mod go.sum vendor/
 
 .PHONY: test
 test: ## Run unit tests.
 	go test ./pkg/... -count=1
 
+.PHONY: verify
+verify: vet fmt lint manifest-diff verify-deps test ## Run all verification checks.
+
 .PHONY: vendor
 vendor: ## Tidy and vendor Go modules.
 	go mod tidy
 	go mod vendor
-
-.PHONY: verify
-verify: vet fmt lint test ## Run all verification checks.
 
 ##@ Build
 
