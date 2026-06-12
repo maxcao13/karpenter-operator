@@ -82,15 +82,6 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	coController := NewClusterOperatorController(mgr, &ClusterOperatorControllerConfig{
-		Namespace:                opts.Namespace,
-		ReleaseVersion:           opts.ReleaseVersion,
-		AdditionalRelatedObjects: provider.RelatedObjects(),
-	})
-	if err := coController.SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("failed to setup clusteroperator controller: %w", err)
-	}
-
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return fmt.Errorf("failed to set up health check: %w", err)
 	}

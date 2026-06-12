@@ -53,7 +53,7 @@ metadata:
 rules:
   - apiGroups: ["config.openshift.io"]
     resources: ["clusteroperators", "clusteroperators/status"]
-    verbs: ["create", "get", "update", "list", "watch"]
+    verbs: ["create", "get", "update", "patch", "list", "watch"]
   - apiGroups: ["config.openshift.io"]
     resources: ["infrastructures"]
     verbs: ["get", "list", "watch"]

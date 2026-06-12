@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
+	"github.com/openshift/karpenter-operator/pkg/controllers/clusteroperator"
 	"github.com/openshift/karpenter-operator/pkg/controllers/deployment"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,6 +24,10 @@ type Config struct {
 }
 
 func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
+	// This abstraction makes it simple to turn on/off controllers based on the topology.
+	// TODO(maxcao13): Remove this TODO once we actually add topology detection and different interfaces for it.
+	// e.g., If HCP Topology, append OpenshiftEC2NodeClass controller.
+	// e.g., if Standalone Topology, add ClusterOperator controller.
 	return []Controller{
 		deployment.NewController(mgr, &deployment.ControllerConfig{
 			Namespace:       cfg.Namespace,
@@ -30,6 +35,11 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 			ClusterName:     cfg.ClusterName,
 			ClusterEndpoint: cfg.ClusterEndpoint,
 			CloudProvider:   cfg.CloudProvider,
+		}),
+		clusteroperator.NewController(mgr, &clusteroperator.ControllerConfig{
+			Namespace:                cfg.Namespace,
+			ReleaseVersion:           cfg.ReleaseVersion,
+			AdditionalRelatedObjects: cfg.CloudProvider.RelatedObjects(),
 		}),
 	}
 }
