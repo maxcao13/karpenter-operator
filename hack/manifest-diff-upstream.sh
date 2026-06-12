@@ -97,7 +97,10 @@ extract Role               karpenter       "${core_staging}/role.yaml"
 extract RoleBinding        karpenter       "${core_staging}/role-binding.yaml"
 extract Role               karpenter-dns   "${core_staging}/role-dns.yaml"
 extract RoleBinding        karpenter-dns   "${core_staging}/role-binding-dns.yaml"
-extract ClusterRole        karpenter-admin "${core_staging}/aggregate-clusterrole.yaml"
+
+# Aggregate ClusterRole is CVO-managed (install/03_aggregate-clusterrole.yaml), not operator-reconciled.
+# Mark it as handled so validation doesn't flag it.
+extracted_names+="ClusterRole/karpenter-admin"$'\n'
 
 # --- AWS (provider-specific, pkg/assets/aws/) ---
 extract ClusterRole        karpenter "${aws_staging}/clusterrole.yaml"

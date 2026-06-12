@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	configv1 "github.com/openshift/api/config/v1"
-	configclient "github.com/openshift/client-go/config/clientset/versioned"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -21,37 +20,46 @@ import (
 const clusterOperatorName = "karpenter"
 
 type ClusterOperatorControllerConfig struct {
-	Namespace      string
-	ReleaseVersion string
+	Namespace                string
+	ReleaseVersion           string
+	AdditionalRelatedObjects []configv1.ObjectReference
 }
 
 type ClusterOperatorController struct {
-	client       client.Client
-	configClient configclient.Interface
-	config       *ClusterOperatorControllerConfig
+	client client.Client
+	config *ClusterOperatorControllerConfig
 }
 
-func NewClusterOperatorController(mgr ctrl.Manager, cfg *ClusterOperatorControllerConfig) (*ClusterOperatorController, error) {
-	cc, err := configclient.NewForConfig(mgr.GetConfig())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config client: %w", err)
-	}
+func NewClusterOperatorController(mgr ctrl.Manager, cfg *ClusterOperatorControllerConfig) *ClusterOperatorController {
 	return &ClusterOperatorController{
-		client:       mgr.GetClient(),
-		configClient: cc,
-		config:       cfg,
-	}, nil
+		client: mgr.GetClient(),
+		config: cfg,
+	}
 }
 
 func (r *ClusterOperatorController) Name() string {
 	return "clusteroperator"
 }
 
-// TODO(maxcao13): For now, we always report Available. We should base it off operand deployment status later.
 func (r *ClusterOperatorController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	log.FromContext(ctx).Info("reconciling ClusterOperator status")
 
-	conditions := availableConditions("AsExpected", fmt.Sprintf("at version %s", r.config.ReleaseVersion))
+	deploy := &appsv1.Deployment{}
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: r.config.Namespace, Name: "karpenter"}, deploy)
+
+	var conditions []configv1.ClusterOperatorStatusCondition
+	switch {
+	case apierrors.IsNotFound(err):
+		conditions = progressingConditions("OperandNotYetCreated", "Waiting for karpenter Deployment to be created")
+	case err != nil:
+		conditions = degradedConditions("OperandCheckFailed", fmt.Sprintf("Failed to get operand Deployment: %v", err))
+	case deploy.Status.AvailableReplicas < 1:
+		conditions = progressingConditions("OperandNotReady", "Waiting for karpenter Deployment to become available")
+	case deploy.Status.UpdatedReplicas != deploy.Status.Replicas:
+		conditions = progressingConditions("OperandRollingOut", "Karpenter Deployment is rolling out")
+	default:
+		conditions = availableConditions("AsExpected", fmt.Sprintf("at version %s", r.config.ReleaseVersion))
+	}
 
 	if err := r.applyStatus(ctx, conditions); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update ClusterOperator status: %w", err)
@@ -86,18 +94,17 @@ func (r *ClusterOperatorController) applyStatus(ctx context.Context, conditions 
 	}
 
 	co.Status = desired
-	_, err = r.configClient.ConfigV1().ClusterOperators().UpdateStatus(ctx, co, metav1.UpdateOptions{})
-	return err
+	return r.client.Status().Update(ctx, co)
 }
 
 func (r *ClusterOperatorController) getOrCreateClusterOperator(ctx context.Context) (*configv1.ClusterOperator, error) {
-	co, err := r.configClient.ConfigV1().ClusterOperators().Get(ctx, clusterOperatorName, metav1.GetOptions{})
+	co := &configv1.ClusterOperator{}
+	err := r.client.Get(ctx, client.ObjectKey{Name: clusterOperatorName}, co)
 	if apierrors.IsNotFound(err) {
 		co = &configv1.ClusterOperator{
 			ObjectMeta: metav1.ObjectMeta{Name: clusterOperatorName},
 		}
-		co, err = r.configClient.ConfigV1().ClusterOperators().Create(ctx, co, metav1.CreateOptions{})
-		if err != nil {
+		if err := r.client.Create(ctx, co); err != nil {
 			return nil, fmt.Errorf("failed to create ClusterOperator: %w", err)
 		}
 	} else if err != nil {
@@ -107,12 +114,15 @@ func (r *ClusterOperatorController) getOrCreateClusterOperator(ctx context.Conte
 }
 
 func (r *ClusterOperatorController) relatedObjects() []configv1.ObjectReference {
-	return []configv1.ObjectReference{
+	objs := []configv1.ObjectReference{
 		{Group: "", Resource: "namespaces", Name: r.config.Namespace},
 		{Group: "apps", Resource: "deployments", Name: "karpenter-operator", Namespace: r.config.Namespace},
 		{Group: "rbac.authorization.k8s.io", Resource: "clusterroles", Name: "karpenter-operator"},
 		{Group: "rbac.authorization.k8s.io", Resource: "clusterrolebindings", Name: "karpenter-operator"},
+		{Group: "karpenter.sh", Resource: "nodepools"},
+		{Group: "karpenter.sh", Resource: "nodeclaims"},
 	}
+	return append(objs, r.config.AdditionalRelatedObjects...)
 }
 
 func (r *ClusterOperatorController) SetupWithManager(mgr ctrl.Manager) error {

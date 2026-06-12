@@ -8,7 +8,7 @@ BUILD_DEST  ?= bin/karpenter-operator
 # Image configuration
 IMAGE_TAG_BASE ?= quay.io/openshift/karpenter-operator
 IMG            ?= $(IMAGE_TAG_BASE):$(VERSION)
-OPERAND_IMG    ?= quay.io/openshift/origin-karpenter:latest
+OPERAND_IMG    ?= quay.io/openshift/origin-aws-karpenter-provider-aws:latest
 
 GOFLAGS ?= -mod=vendor
 export GOFLAGS
@@ -144,23 +144,30 @@ CLUSTER_NAME ?=
 # TODO(maxcao13): remove DEV flag before GA — imagePullPolicy should not be Always in production
 DEV ?=
 
-.PHONY: deploy
-deploy: ## Deploy operator to the K8s cluster (patches IMG/OPERAND_IMG/CLUSTER_NAME into manifests).
+.PHONY: predeploy
+predeploy: ## Copy and patch install manifests into _output/ for dev deployment.
+	@rm -rf _output
 	@mkdir -p _output
 	@cp install/*.yaml _output/
 	@sed -i 's|image: quay.io/openshift/origin-karpenter-operator:.*|image: $(IMG)|' _output/05_deployment.yaml
-	@sed -i 's|value: quay.io/openshift/origin-karpenter:.*|value: $(OPERAND_IMG)|' _output/05_deployment.yaml
+	@sed -i 's|value: quay.io/openshift/origin-aws-karpenter-provider-aws:.*|value: $(OPERAND_IMG)|' _output/05_deployment.yaml
 	@sed -i '/name: CLUSTER_NAME/{n;s|value: ".*"|value: "$(CLUSTER_NAME)"|}' _output/05_deployment.yaml
 	@if [ "$(DEV)" = "true" ]; then \
 		sed -i '/- name: karpenter-operator$$/a\        imagePullPolicy: Always' _output/05_deployment.yaml; \
-		sed -i '/name: KARPENTER_IMAGE/i\        - name: DEV_IMAGE_PULL_POLICY\n          value: "Always"' _output/05_deployment.yaml; \
+		sed -i '/name: KARPENTER_IMAGE_AWS/i\        - name: DEV_IMAGE_PULL_POLICY\n          value: "Always"' _output/05_deployment.yaml; \
 	fi
+
+.PHONY: apply
+apply: ## Apply manifests from _output/ to the cluster.
 	kubectl apply --server-side --force-conflicts -f _output/00_namespace.yaml
 	kubectl apply --server-side --force-conflicts -f _output/
 
+.PHONY: deploy
+deploy: predeploy apply ## Deploy operator to the K8s cluster.
+
 .PHONY: undeploy
 undeploy: ## Remove operator from the K8s cluster.
-	kubectl delete --ignore-not-found -f _output/
+	@[ -d _output ] && kubectl delete --ignore-not-found -f _output/ || true
 
 ##@ General
 
