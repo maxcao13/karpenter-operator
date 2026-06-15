@@ -10,6 +10,7 @@ import (
 	awskarpenterv1 "github.com/aws/karpenter-provider-aws/pkg/apis/v1"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -54,6 +55,10 @@ func (p *Provider) OperandConfig() common.OperandCloudConfig {
 			},
 		},
 	}
+}
+
+func (p *Provider) CRDs() []*apiextensionsv1.CustomResourceDefinition {
+	return assets.AWSCRDs
 }
 
 func (p *Provider) RBAC() common.RBACAssets {

@@ -3,8 +3,10 @@ package controllers
 import (
 	"fmt"
 
+	"github.com/openshift/karpenter-operator/pkg/assets"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 	"github.com/openshift/karpenter-operator/pkg/controllers/clusteroperator"
+	"github.com/openshift/karpenter-operator/pkg/controllers/crd"
 	"github.com/openshift/karpenter-operator/pkg/controllers/deployment"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,6 +31,10 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 	// e.g., If HCP Topology, append OpenshiftEC2NodeClass controller.
 	// e.g., if Standalone Topology, add ClusterOperator controller.
 	return []Controller{
+		crd.NewController(mgr, &crd.ControllerConfig{
+			Namespace: cfg.Namespace,
+			CRDs:      append(assets.CoreCRDs, cfg.CloudProvider.CRDs()...),
+		}),
 		deployment.NewController(mgr, &deployment.ControllerConfig{
 			Namespace:       cfg.Namespace,
 			KarpenterImage:  cfg.KarpenterImage,

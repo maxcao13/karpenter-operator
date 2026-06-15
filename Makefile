@@ -165,9 +165,18 @@ apply: ## Apply manifests from _output/ to the cluster.
 .PHONY: deploy
 deploy: predeploy apply ## Deploy operator to the K8s cluster.
 
+.PHONY: uninstall-crds
+uninstall-crds: ## Delete Karpenter CRDs from the cluster.
+	kubectl delete --ignore-not-found crd \
+		ec2nodeclasses.karpenter.k8s.aws \
+		nodepools.karpenter.sh \
+		nodeclaims.karpenter.sh \
+		nodeoverlays.karpenter.sh
+
 .PHONY: undeploy
-undeploy: ## Remove operator from the K8s cluster.
+undeploy: ## Remove operator and CRDs from the K8s cluster.
 	@[ -d _output ] && kubectl delete --ignore-not-found -f _output/ || true
+	@$(MAKE) uninstall-crds
 
 ##@ General
 

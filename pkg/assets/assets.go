@@ -7,6 +7,7 @@ import (
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -18,6 +19,9 @@ var coreContent embed.FS
 //go:embed aws/*.yaml
 var awsContent embed.FS
 
+//go:embed crds/*.yaml
+var crdContent embed.FS
+
 var (
 	// CoreRBAC holds cloud-agnostic operand RBAC (namespace-scoped and cluster-scoped).
 	// Decoded once at init from embedded YAML; treat as read-only.
@@ -26,11 +30,18 @@ var (
 	// AWSRBACAssets holds AWS-specific operand RBAC.
 	// Decoded once at init from embedded YAML; treat as read-only.
 	AWSRBACAssets common.RBACAssets
+
+	// CoreCRDs holds cloud-agnostic Karpenter CRDs (NodePool, NodeClaim, NodeOverlay).
+	CoreCRDs []*apiextensionsv1.CustomResourceDefinition
+
+	// AWSCRDs holds AWS-specific Karpenter CRDs (EC2NodeClass).
+	AWSCRDs []*apiextensionsv1.CustomResourceDefinition
 )
 
 func init() {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
+	_ = apiextensionsv1.AddToScheme(s)
 	decode := serializer.NewCodecFactory(s).UniversalDeserializer()
 
 	mustDecode := func(fs embed.FS, file string) runtime.Object {
@@ -67,5 +78,15 @@ func init() {
 		ClusterRoleBindings: []*rbacv1.ClusterRoleBinding{
 			mustDecode(awsContent, "aws/clusterrolebinding.yaml").(*rbacv1.ClusterRoleBinding),
 		},
+	}
+
+	CoreCRDs = []*apiextensionsv1.CustomResourceDefinition{
+		mustDecode(crdContent, "crds/karpenter.sh_nodepools.yaml").(*apiextensionsv1.CustomResourceDefinition),
+		mustDecode(crdContent, "crds/karpenter.sh_nodeclaims.yaml").(*apiextensionsv1.CustomResourceDefinition),
+		mustDecode(crdContent, "crds/karpenter.sh_nodeoverlays.yaml").(*apiextensionsv1.CustomResourceDefinition),
+	}
+
+	AWSCRDs = []*apiextensionsv1.CustomResourceDefinition{
+		mustDecode(crdContent, "crds/karpenter.k8s.aws_ec2nodeclasses.yaml").(*apiextensionsv1.CustomResourceDefinition),
 	}
 }

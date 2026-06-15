@@ -10,6 +10,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -27,6 +28,7 @@ var scheme = runtime.NewScheme()
 func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = configv1.Install(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
 }
 
 func Run(ctx context.Context, opts Options) error {
