@@ -7,7 +7,6 @@ import (
 
 func TestLoadEnv(t *testing.T) {
 	t.Setenv(ReleaseVersionEnvName, "4.23.0")
-	t.Setenv(KarpenterImageEnvName, "quay.io/openshift/karpenter:latest")
 	t.Setenv(ClusterNameEnvName, "my-cluster")
 	t.Setenv(ClusterEndpointEnvName, "https://api-int.example.com:6443")
 
@@ -16,9 +15,6 @@ func TestLoadEnv(t *testing.T) {
 
 	if opts.ReleaseVersion != "4.23.0" {
 		t.Errorf("ReleaseVersion = %q, want %q", opts.ReleaseVersion, "4.23.0")
-	}
-	if opts.KarpenterImage != "quay.io/openshift/karpenter:latest" {
-		t.Errorf("KarpenterImage = %q, want %q", opts.KarpenterImage, "quay.io/openshift/karpenter:latest")
 	}
 	if opts.ClusterName != "my-cluster" {
 		t.Errorf("ClusterName = %q, want %q", opts.ClusterName, "my-cluster")
@@ -39,28 +35,28 @@ func TestValidate(t *testing.T) {
 			name: "valid with all required fields",
 			opts: Options{
 				Namespace:      "openshift-karpenter",
-				KarpenterImage: "quay.io/openshift/karpenter:latest",
+				ReleaseVersion: "4.23.0",
 			},
 			wantErr: false,
 		},
 		{
 			name: "missing namespace",
 			opts: Options{
-				KarpenterImage: "quay.io/openshift/karpenter:latest",
+				ReleaseVersion: "4.23.0",
 			},
 			wantErr: true,
 			errMsg:  "--namespace",
 		},
 		{
-			name: "missing karpenter image",
+			name: "missing release version",
 			opts: Options{
 				Namespace: "openshift-karpenter",
 			},
 			wantErr: true,
-			errMsg:  KarpenterImageEnvName,
+			errMsg:  ReleaseVersionEnvName,
 		},
 		{
-			name:    "missing both",
+			name:    "missing all",
 			opts:    Options{},
 			wantErr: true,
 			errMsg:  "--namespace",
@@ -69,7 +65,7 @@ func TestValidate(t *testing.T) {
 			name: "cluster name and endpoint are optional",
 			opts: Options{
 				Namespace:      "openshift-karpenter",
-				KarpenterImage: "quay.io/openshift/karpenter:latest",
+				ReleaseVersion: "4.23.0",
 			},
 			wantErr: false,
 		},

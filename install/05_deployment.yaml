@@ -41,8 +41,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - name: KARPENTER_IMAGE
-          value: quay.io/openshift/origin-karpenter:latest
+        - name: KARPENTER_IMAGE_AWS
+          value: quay.io/openshift/origin-aws-karpenter-provider-aws:latest
         - name: CLUSTER_NAME
           value: ""
         - name: AWS_SHARED_CREDENTIALS_FILE

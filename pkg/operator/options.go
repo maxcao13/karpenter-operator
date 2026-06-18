@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
+	"github.com/openshift/karpenter-operator/pkg/controllers"
 )
 
 const (
 	ReleaseVersionEnvName  = "RELEASE_VERSION"
-	KarpenterImageEnvName  = "KARPENTER_IMAGE"
 	ClusterNameEnvName     = "CLUSTER_NAME"
 	ClusterEndpointEnvName = "CLUSTER_ENDPOINT"
 )
@@ -16,11 +18,9 @@ const (
 type Options struct {
 	// Namespace is set via --namespace flag.
 	Namespace string
-
-	// ReleaseVersion is read from RELEASE_VERSION env var (injected by CVO).
+	// ReleaseVersion is read from RELEASE_VERSION env var.
 	ReleaseVersion string
-	// KarpenterImage is read from KARPENTER_IMAGE env var (injected by CVO/OLM).
-	KarpenterImage string
+
 	// ClusterName is read from CLUSTER_NAME env var, or discovered from Infrastructure CR.
 	ClusterName string
 	// ClusterEndpoint is read from CLUSTER_ENDPOINT env var, or discovered from Infrastructure CR.
@@ -34,9 +34,30 @@ type Options struct {
 // LoadEnv populates fields that are sourced exclusively from environment variables.
 func (o *Options) LoadEnv() {
 	o.ReleaseVersion = os.Getenv(ReleaseVersionEnvName)
-	o.KarpenterImage = os.Getenv(KarpenterImageEnvName)
 	o.ClusterName = os.Getenv(ClusterNameEnvName)
 	o.ClusterEndpoint = os.Getenv(ClusterEndpointEnvName)
+}
+
+// ResolveControllerConfig merges env var overrides with infrastructure defaults
+// and returns a fully resolved controllers.Config.
+func (o *Options) ResolveControllerConfig(infra common.InfrastructureInfo, provider common.CloudProvider) *controllers.Config {
+	clusterName := o.ClusterName
+	if clusterName == "" {
+		clusterName = infra.InfraName
+	}
+	clusterEndpoint := o.ClusterEndpoint
+	if clusterEndpoint == "" {
+		clusterEndpoint = infra.ClusterEndpoint
+	}
+
+	return &controllers.Config{
+		Namespace:       o.Namespace,
+		KarpenterImage:  provider.KarpenterImage(),
+		ClusterName:     clusterName,
+		ClusterEndpoint: clusterEndpoint,
+		ReleaseVersion:  o.ReleaseVersion,
+		CloudProvider:   provider,
+	}
 }
 
 // Validate checks that required pre-Infrastructure-discovery fields are set.
@@ -47,8 +68,8 @@ func (o *Options) Validate() error {
 	if o.Namespace == "" {
 		missing = append(missing, "--namespace")
 	}
-	if o.KarpenterImage == "" {
-		missing = append(missing, KarpenterImageEnvName)
+	if o.ReleaseVersion == "" {
+		missing = append(missing, ReleaseVersionEnvName)
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("required configuration not set: %s", strings.Join(missing, ", "))
