@@ -77,6 +77,8 @@ $(HELM): $(LOCALBIN)
 
 ##@ Development
 
+JUNIT_REPORT := $(if $(ARTIFACT_DIR),--ginkgo.junit-report="$(ARTIFACT_DIR)/junit_e2e.xml")
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -108,6 +110,10 @@ verify-deps: ## Verify go.mod and vendor are tidy.
 .PHONY: test
 test: ## Run unit tests.
 	go test ./pkg/... -count=1
+
+.PHONY: e2e
+e2e: ## Run e2e tests (requires KUBECONFIG).
+	go test ./test/suites/... -count=1 -timeout 30m -v $(JUNIT_REPORT)
 
 .PHONY: verify
 verify: vet fmt lint manifest-diff verify-deps test ## Run all verification checks.
