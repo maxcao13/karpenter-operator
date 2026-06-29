@@ -70,6 +70,9 @@ metadata:
     include.release.openshift.io/self-managed-high-availability: "true"
     release.openshift.io/feature-gate: KarpenterOperator
 rules:
+  - apiGroups: ["autoscaling.openshift.io"]
+    resources: ["karpenters", "karpenters/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["config.openshift.io"]
     resources: ["clusteroperators", "clusteroperators/status"]
     verbs: ["create", "get", "update", "patch", "list", "watch"]
