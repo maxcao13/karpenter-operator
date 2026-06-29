@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	autoscalingv1alpha1 "github.com/openshift/karpenter-operator/pkg/apis/autoscaling/v1alpha1"
+
 	configv1 "github.com/openshift/api/config/v1"
 	configac "github.com/openshift/client-go/config/applyconfigurations/config/v1"
 
@@ -27,10 +29,15 @@ var testConfig = &ControllerConfig{
 	ReleaseVersion: testReleaseVersion,
 }
 
+var testKarpenterCR = &autoscalingv1alpha1.Karpenter{
+	ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+}
+
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = appsv1.AddToScheme(s)
 	_ = configv1.Install(s)
+	_ = autoscalingv1alpha1.AddToScheme(s)
 	return s
 }
 
@@ -59,8 +66,20 @@ func TestReconcile(t *testing.T) { //nolint:gocyclo
 		expectRelatedObjCt int
 	}{
 		{
-			name:               "operand Deployment not found — reports Progressing",
+			name:               "no Karpenter CR — reports Available",
 			objs:               nil,
+			expectAvailable:    configv1.ConditionTrue,
+			expectProgressing:  configv1.ConditionFalse,
+			expectDegraded:     configv1.ConditionFalse,
+			expectUpgradeable:  configv1.ConditionTrue,
+			expectMessageOn:    configv1.OperatorAvailable,
+			expectMessage:      "at version " + testReleaseVersion,
+			expectVersion:      testReleaseVersion,
+			expectRelatedObjCt: 6,
+		},
+		{
+			name:               "Karpenter CR exists, Deployment not found — reports Progressing",
+			objs:               []client.Object{testKarpenterCR},
 			expectAvailable:    configv1.ConditionTrue,
 			expectProgressing:  configv1.ConditionTrue,
 			expectDegraded:     configv1.ConditionFalse,
@@ -73,6 +92,7 @@ func TestReconcile(t *testing.T) { //nolint:gocyclo
 		{
 			name: "operand Deployment not ready — reports Progressing",
 			objs: []client.Object{
+				testKarpenterCR,
 				&appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: "karpenter", Namespace: testNamespace},
 					Status:     appsv1.DeploymentStatus{Replicas: 1, AvailableReplicas: 0},
@@ -90,6 +110,7 @@ func TestReconcile(t *testing.T) { //nolint:gocyclo
 		{
 			name: "operand Deployment rolling out — reports Progressing",
 			objs: []client.Object{
+				testKarpenterCR,
 				&appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: "karpenter", Namespace: testNamespace},
 					Status:     appsv1.DeploymentStatus{Replicas: 2, AvailableReplicas: 1, UpdatedReplicas: 1},
@@ -107,6 +128,7 @@ func TestReconcile(t *testing.T) { //nolint:gocyclo
 		{
 			name: "operand Deployment healthy — reports Available",
 			objs: []client.Object{
+				testKarpenterCR,
 				&appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: "karpenter", Namespace: testNamespace},
 					Status:     appsv1.DeploymentStatus{Replicas: 1, AvailableReplicas: 1, UpdatedReplicas: 1},
@@ -124,6 +146,7 @@ func TestReconcile(t *testing.T) { //nolint:gocyclo
 		{
 			name: "updates existing ClusterOperator",
 			objs: []client.Object{
+				testKarpenterCR,
 				&appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: "karpenter", Namespace: testNamespace},
 					Status:     appsv1.DeploymentStatus{Replicas: 1, AvailableReplicas: 1, UpdatedReplicas: 1},

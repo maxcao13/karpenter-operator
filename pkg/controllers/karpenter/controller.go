@@ -1,10 +1,12 @@
-package deployment
+package karpenter
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
+	autoscalingv1alpha1 "github.com/openshift/karpenter-operator/pkg/apis/autoscaling/v1alpha1"
 	"github.com/openshift/karpenter-operator/pkg/assets"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 
@@ -19,18 +21,29 @@ import (
 	rbacac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
-	karpenterName          = "karpenter"
-	operatorDeploymentName = "karpenter-operator"
-	fieldManager           = "karpenter-operator"
+	karpenterName = "karpenter"
+	singletonName = "default"
+	fieldManager  = "karpenter-operator"
 )
+
+const (
+	defaultMetricsPort     = 8080
+	defaultHealthProbePort = 8081
+
+	metricsPortName     = "metrics"
+	healthProbePortName = "http"
+
+	karpenterPodTerminationGracePeriodSeconds = 10
+	karpenterPodPriorityClassName             = "system-node-critical"
+)
+
+var defaultHealthProbePortStr = strconv.Itoa(defaultHealthProbePort)
 
 type ControllerConfig struct {
 	Namespace       string
@@ -58,60 +71,49 @@ func NewController(mgr ctrl.Manager, cfg *ControllerConfig) *Controller {
 }
 
 func (c *Controller) Name() string {
-	return "deployment"
+	return "karpenter"
 }
 
 func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	log.FromContext(ctx).Info("reconciling karpenter deployment")
 
-	owner, err := c.getOperatorDeployment(ctx)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get operator deployment: %w", err)
+	karp := &autoscalingv1alpha1.Karpenter{}
+	if err := c.client.Get(ctx, client.ObjectKey{Name: singletonName}, karp); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if err := c.applyServiceAccount(ctx, owner); err != nil {
+	if err := c.applyServiceAccount(ctx, karp); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile ServiceAccount: %w", err)
 	}
 
 	cloudRBAC := c.config.CloudProvider.RBAC()
-	if err := c.applyRoles(ctx, owner, append(assets.CoreRBAC.Roles, cloudRBAC.Roles...)); err != nil {
+	if err := c.applyRoles(ctx, karp, append(assets.CoreRBAC.Roles, cloudRBAC.Roles...)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile Roles: %w", err)
 	}
-	if err := c.applyRoleBindings(ctx, owner, append(assets.CoreRBAC.RoleBindings, cloudRBAC.RoleBindings...)); err != nil {
+	if err := c.applyRoleBindings(ctx, karp, append(assets.CoreRBAC.RoleBindings, cloudRBAC.RoleBindings...)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile RoleBindings: %w", err)
 	}
-	if err := c.applyClusterRoles(ctx, append(assets.CoreRBAC.ClusterRoles, cloudRBAC.ClusterRoles...)); err != nil {
+	if err := c.applyClusterRoles(ctx, karp, append(assets.CoreRBAC.ClusterRoles, cloudRBAC.ClusterRoles...)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile ClusterRoles: %w", err)
 	}
-	if err := c.applyClusterRoleBindings(ctx, append(assets.CoreRBAC.ClusterRoleBindings, cloudRBAC.ClusterRoleBindings...)); err != nil {
+	if err := c.applyClusterRoleBindings(ctx, karp, append(assets.CoreRBAC.ClusterRoleBindings, cloudRBAC.ClusterRoleBindings...)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile ClusterRoleBindings: %w", err)
 	}
 
-	if err := c.applyDeployment(ctx, owner); err != nil {
+	if err := c.applyDeployment(ctx, karp); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile Deployment: %w", err)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (c *Controller) getOperatorDeployment(ctx context.Context) (*appsv1.Deployment, error) {
-	dep := &appsv1.Deployment{}
-	if err := c.client.Get(ctx, client.ObjectKey{
-		Namespace: c.config.Namespace,
-		Name:      operatorDeploymentName,
-	}, dep); err != nil {
-		return nil, err
-	}
-	return dep, nil
-}
-
-func (c *Controller) applyServiceAccount(ctx context.Context, owner *appsv1.Deployment) error {
+func (c *Controller) applyServiceAccount(ctx context.Context, owner *autoscalingv1alpha1.Karpenter) error {
 	sa := coreac.ServiceAccount(karpenterName, c.config.Namespace).
 		WithOwnerReferences(ownerRef(owner))
 	return c.client.Apply(ctx, sa, client.FieldOwner(fieldManager), client.ForceOwnership)
 }
 
-func (c *Controller) applyRoles(ctx context.Context, owner *appsv1.Deployment, roles []*rbacv1.Role) error {
+func (c *Controller) applyRoles(ctx context.Context, owner *autoscalingv1alpha1.Karpenter, roles []*rbacv1.Role) error {
 	for _, desired := range roles {
 		role := rbacac.Role(desired.Name, c.config.Namespace).
 			WithOwnerReferences(ownerRef(owner)).
@@ -123,7 +125,7 @@ func (c *Controller) applyRoles(ctx context.Context, owner *appsv1.Deployment, r
 	return nil
 }
 
-func (c *Controller) applyRoleBindings(ctx context.Context, owner *appsv1.Deployment, bindings []*rbacv1.RoleBinding) error {
+func (c *Controller) applyRoleBindings(ctx context.Context, owner *autoscalingv1alpha1.Karpenter, bindings []*rbacv1.RoleBinding) error {
 	for _, desired := range bindings {
 		rb := rbacac.RoleBinding(desired.Name, c.config.Namespace).
 			WithOwnerReferences(ownerRef(owner)).
@@ -136,9 +138,10 @@ func (c *Controller) applyRoleBindings(ctx context.Context, owner *appsv1.Deploy
 	return nil
 }
 
-func (c *Controller) applyClusterRoles(ctx context.Context, clusterRoles []*rbacv1.ClusterRole) error {
+func (c *Controller) applyClusterRoles(ctx context.Context, owner *autoscalingv1alpha1.Karpenter, clusterRoles []*rbacv1.ClusterRole) error {
 	for _, desired := range clusterRoles {
 		cr := rbacac.ClusterRole(desired.Name).
+			WithOwnerReferences(ownerRef(owner)).
 			WithLabels(desired.Labels).
 			WithRules(policyRules(desired.Rules)...)
 		if desired.AggregationRule != nil {
@@ -155,9 +158,10 @@ func (c *Controller) applyClusterRoles(ctx context.Context, clusterRoles []*rbac
 	return nil
 }
 
-func (c *Controller) applyClusterRoleBindings(ctx context.Context, bindings []*rbacv1.ClusterRoleBinding) error {
+func (c *Controller) applyClusterRoleBindings(ctx context.Context, owner *autoscalingv1alpha1.Karpenter, bindings []*rbacv1.ClusterRoleBinding) error {
 	for _, desired := range bindings {
 		crb := rbacac.ClusterRoleBinding(desired.Name).
+			WithOwnerReferences(ownerRef(owner)).
 			WithRoleRef(roleRef(desired.RoleRef)).
 			WithSubjects(subjects(desired.Subjects, c.config.Namespace)...)
 		if err := c.client.Apply(ctx, crb, client.FieldOwner(fieldManager), client.ForceOwnership); err != nil {
@@ -170,7 +174,7 @@ func (c *Controller) applyClusterRoleBindings(ctx context.Context, bindings []*r
 // TODO(maxcao13): currently if the aws binary doesn't detect valid AWS credentials, it will exit with an error, restarting the pod.
 // On HCP, there exists an init container bundled with karpenter to wait until such a credential is mounted to the pod.
 // We should consider adding a similar init container for both topologies, maybe by porting the HCP logic and container image here.
-func (c *Controller) applyDeployment(ctx context.Context, owner *appsv1.Deployment) error {
+func (c *Controller) applyDeployment(ctx context.Context, owner *autoscalingv1alpha1.Karpenter) error {
 	labels := map[string]string{"app": karpenterName}
 
 	dep := appsac.Deployment(karpenterName, c.config.Namespace).
@@ -184,19 +188,19 @@ func (c *Controller) applyDeployment(ctx context.Context, owner *appsv1.Deployme
 					"openshift.io/required-scc":               "restricted-v2",
 				}).
 				WithLabels(labels).
-				WithSpec(c.karpenterPodSpec()),
+				WithSpec(c.karpenterPodSpec(owner.Spec.LogLevel.Arg())),
 			),
 		)
 	return c.client.Apply(ctx, dep, client.FieldOwner(fieldManager), client.ForceOwnership)
 }
 
-func (c *Controller) karpenterPodSpec() *coreac.PodSpecApplyConfiguration {
+func (c *Controller) karpenterPodSpec(logLevelArg string) *coreac.PodSpecApplyConfiguration {
 	cloudCfg := c.config.CloudProvider.OperandConfig()
 
 	return coreac.PodSpec().
-		WithPriorityClassName("system-node-critical").
+		WithPriorityClassName(karpenterPodPriorityClassName).
 		WithServiceAccountName(karpenterName).
-		WithTerminationGracePeriodSeconds(10).
+		WithTerminationGracePeriodSeconds(karpenterPodTerminationGracePeriodSeconds).
 		WithSecurityContext(coreac.PodSecurityContext().
 			WithRunAsNonRoot(true).
 			WithSeccompProfile(coreac.SeccompProfile().
@@ -207,7 +211,7 @@ func (c *Controller) karpenterPodSpec() *coreac.PodSpecApplyConfiguration {
 				WithName(karpenterName).
 				WithImage(c.config.KarpenterImage).
 				WithImagePullPolicy(c.imagePullPolicy).
-				WithArgs("--log-level=debug"). // TODO(maxcao13): have this configurable
+				WithArgs(logLevelArg).
 				WithEnv(c.karpenterEnv(cloudCfg)...).
 				WithPorts(karpenterPorts()...).
 				WithResources(coreac.ResourceRequirements().
@@ -243,7 +247,7 @@ func (c *Controller) karpenterEnv(cloudCfg common.OperandCloudConfig) []*coreac.
 		coreac.EnvVar().WithName("CLUSTER_ENDPOINT").WithValue(c.config.ClusterEndpoint),
 		coreac.EnvVar().WithName("DISABLE_WEBHOOK").WithValue("true"),
 		// TODO(maxcao13): allow users to specify feature gates through a Karpenter CR.
-		coreac.EnvVar().WithName("HEALTH_PROBE_PORT").WithValue("8081"),
+		coreac.EnvVar().WithName("HEALTH_PROBE_PORT").WithValue(defaultHealthProbePortStr),
 	}
 	return append(env, envVars(cloudCfg.Env)...)
 }
@@ -253,14 +257,11 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	managedClusterRoles := namesFromClusterRoles(append(assets.CoreRBAC.ClusterRoles, cloudRBAC.ClusterRoles...))
 	managedClusterRoleBindings := namesFromClusterRoleBindings(append(assets.CoreRBAC.ClusterRoleBindings, cloudRBAC.ClusterRoleBindings...))
 
-	reconcileRequest := []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: c.config.Namespace, Name: operatorDeploymentName}}}
+	reconcileRequest := []ctrl.Request{{NamespacedName: client.ObjectKey{Name: singletonName}}}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(c.Name()).
-		// TODO(maxcao13): when we get the Karpenter API object, we should watch that instead of the operator deployment.
-		For(&appsv1.Deployment{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-			return o.GetNamespace() == c.config.Namespace && o.GetName() == operatorDeploymentName
-		}))).
+		For(&autoscalingv1alpha1.Karpenter{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&rbacv1.Role{}).
@@ -295,10 +296,10 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 
 // --- Owner reference helper ---
 
-func ownerRef(owner *appsv1.Deployment) *metaac.OwnerReferenceApplyConfiguration {
+func ownerRef(owner *autoscalingv1alpha1.Karpenter) *metaac.OwnerReferenceApplyConfiguration {
 	return metaac.OwnerReference().
-		WithAPIVersion("apps/v1").
-		WithKind("Deployment").
+		WithAPIVersion(autoscalingv1alpha1.SchemeGroupVersion.String()).
+		WithKind("Karpenter").
 		WithName(owner.Name).
 		WithUID(owner.UID).
 		WithBlockOwnerDeletion(true).
@@ -407,21 +408,21 @@ func namesFromClusterRoleBindings(bindings []*rbacv1.ClusterRoleBinding) map[str
 
 func karpenterPorts() []*coreac.ContainerPortApplyConfiguration {
 	return []*coreac.ContainerPortApplyConfiguration{
-		coreac.ContainerPort().WithName("metrics").WithContainerPort(8080),
-		coreac.ContainerPort().WithName("http").WithContainerPort(8081).WithProtocol(corev1.ProtocolTCP),
+		coreac.ContainerPort().WithName(metricsPortName).WithContainerPort(defaultMetricsPort),
+		coreac.ContainerPort().WithName(healthProbePortName).WithContainerPort(defaultHealthProbePort).WithProtocol(corev1.ProtocolTCP),
 	}
 }
 
 func karpenterLivenessProbe() *coreac.ProbeApplyConfiguration {
 	return coreac.Probe().
-		WithHTTPGet(coreac.HTTPGetAction().WithPath("/healthz").WithPort(intstr.FromInt32(8081))).
+		WithHTTPGet(coreac.HTTPGetAction().WithPath("/healthz").WithPort(intstr.FromInt(defaultHealthProbePort))).
 		WithInitialDelaySeconds(30).
 		WithTimeoutSeconds(30)
 }
 
 func karpenterReadinessProbe() *coreac.ProbeApplyConfiguration {
 	return coreac.Probe().
-		WithHTTPGet(coreac.HTTPGetAction().WithPath("/readyz").WithPort(intstr.FromInt32(8081))).
+		WithHTTPGet(coreac.HTTPGetAction().WithPath("/readyz").WithPort(intstr.FromInt(defaultHealthProbePort))).
 		WithInitialDelaySeconds(5).
 		WithTimeoutSeconds(30)
 }

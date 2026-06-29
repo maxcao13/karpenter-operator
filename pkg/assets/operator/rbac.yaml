@@ -52,7 +52,7 @@ metadata:
   name: karpenter-operator
 rules:
   - apiGroups: ["autoscaling.openshift.io"]
-    resources: ["karpenters", "karpenters/status"]
+    resources: ["karpenters", "karpenters/status", "karpenters/finalizers"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["config.openshift.io"]
     resources: ["clusteroperators", "clusteroperators/status"]

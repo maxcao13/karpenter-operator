@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	autoscalingv1alpha1 "github.com/openshift/karpenter-operator/pkg/apis/autoscaling/v1alpha1"
+
 	configv1 "github.com/openshift/api/config/v1"
 	configac "github.com/openshift/client-go/config/applyconfigurations/config/v1"
 
@@ -59,6 +61,14 @@ func (r *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 }
 
 func (r *Controller) operandConditions(ctx context.Context) []*configac.ClusterOperatorStatusConditionApplyConfiguration {
+	karp := &autoscalingv1alpha1.Karpenter{}
+	if err := r.client.Get(ctx, client.ObjectKey{Name: "cluster"}, karp); err != nil {
+		if apierrors.IsNotFound(err) {
+			return availableConditions("KarpenterNotFound", fmt.Sprintf("at version %s", r.config.ReleaseVersion))
+		}
+		return degradedConditions("KarpenterCheckFailed", fmt.Sprintf("Failed to get Karpenter CR: %v", err))
+	}
+
 	deploy := &appsv1.Deployment{}
 	err := r.client.Get(ctx, client.ObjectKey{Namespace: r.config.Namespace, Name: "karpenter"}, deploy)
 
@@ -132,17 +142,27 @@ func (r *Controller) relatedObjects() []*configac.ObjectReferenceApplyConfigurat
 }
 
 func (r *Controller) SetupWithManager(mgr ctrl.Manager) error {
+	reconcileRequest := []ctrl.Request{{NamespacedName: client.ObjectKey{Name: clusterOperatorName}}}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).
 		For(&configv1.ClusterOperator{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
 			return o.GetName() == clusterOperatorName
 		}))).
+		Watches(&autoscalingv1alpha1.Karpenter{}, handler.EnqueueRequestsFromMapFunc(
+			func(_ context.Context, o client.Object) []ctrl.Request {
+				if o.GetName() != "cluster" {
+					return nil
+				}
+				return reconcileRequest
+			},
+		)).
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(
 			func(_ context.Context, o client.Object) []ctrl.Request {
 				if o.GetNamespace() != r.config.Namespace || o.GetName() != "karpenter" {
 					return nil
 				}
-				return []ctrl.Request{{NamespacedName: client.ObjectKey{Name: clusterOperatorName}}}
+				return reconcileRequest
 			},
 		)).
 		Complete(r)

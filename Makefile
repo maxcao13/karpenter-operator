@@ -101,6 +101,7 @@ generate: $(CONTROLLER_GEN) ## Generate deepcopy methods.
 .PHONY: manifests
 manifests: $(CONTROLLER_GEN) ## Generate CRD manifests.
 	$(CONTROLLER_GEN) crd paths="./pkg/apis/..." output:crd:artifacts:config=install
+	@mv install/autoscaling.openshift.io_karpenters.yaml install/00_autoscaling.openshift.io_karpenters.yaml
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -141,7 +142,10 @@ e2e: ## Run e2e tests (requires KUBECONFIG).
 	go test ./test/suites/... -count=1 -timeout 30m -v $(JUNIT_REPORT)
 
 .PHONY: verify
-verify: vet lint manifest-diff update verify-git-clean test ## Run all verification checks.
+verify: vet lint test ## Run all verification checks.
+	$(MAKE) update
+	$(MAKE) manifest-diff
+	$(MAKE) verify-git-clean
 
 .PHONY: vendor
 vendor: ## Tidy and vendor Go modules.
