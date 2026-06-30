@@ -5,7 +5,7 @@ metadata:
   annotations:
     exclude.release.openshift.io/internal-openshift-hosted: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
-    release.openshift.io/feature-set: DevPreviewNoUpgrade
+    release.openshift.io/feature-gate: KarpenterOperator
 spec: {}
 status:
   versions:

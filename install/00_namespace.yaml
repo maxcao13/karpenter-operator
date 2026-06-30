@@ -8,6 +8,6 @@ metadata:
     workload.openshift.io/allowed: management
     exclude.release.openshift.io/internal-openshift-hosted: "true"
     include.release.openshift.io/self-managed-high-availability: "true"
-    release.openshift.io/feature-set: DevPreviewNoUpgrade
+    release.openshift.io/feature-gate: KarpenterOperator
   labels:
     openshift.io/cluster-monitoring: "true"
