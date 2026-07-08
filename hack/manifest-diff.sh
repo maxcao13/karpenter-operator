@@ -18,11 +18,11 @@
 
 set -euo pipefail
 
-CVO_FEATURE_SET="DevPreviewNoUpgrade"
+CVO_FEATURE_GATE="KarpenterOperator"
 CVO_ANNOTATIONS_YQ='
   .metadata.annotations["exclude.release.openshift.io/internal-openshift-hosted"] = "true" |
   .metadata.annotations["include.release.openshift.io/self-managed-high-availability"] = "true" |
-  .metadata.annotations["release.openshift.io/feature-set"] = "'"${CVO_FEATURE_SET}"'"
+  .metadata.annotations["release.openshift.io/feature-gate"] = "'"${CVO_FEATURE_GATE}"'"
 '
 
 NAMESPACE="openshift-karpenter"
