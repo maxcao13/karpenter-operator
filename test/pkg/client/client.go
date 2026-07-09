@@ -5,8 +5,12 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 
+	"github.com/aws/karpenter-provider-aws/pkg/apis"
+	awskarpenterv1 "github.com/aws/karpenter-provider-aws/pkg/apis/v1"
+
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
@@ -20,6 +24,9 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(configv1.Install(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+
+	gv := schema.GroupVersion{Group: apis.Group, Version: "v1"}
+	scheme.AddKnownTypes(gv, &awskarpenterv1.EC2NodeClass{}, &awskarpenterv1.EC2NodeClassList{})
 }
 
 // NewClient returns a controller-runtime client configured from the

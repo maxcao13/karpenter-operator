@@ -63,6 +63,9 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["karpenter.k8s.aws"]
+    resources: ["ec2nodeclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -76,6 +79,34 @@ roleRef:
   kind: ClusterRole
   name: karpenter-operator
   apiGroup: rbac.authorization.k8s.io
+---
+# Operator reads worker-user-data Secrets and MachineSets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: karpenter-operator
+  namespace: openshift-machine-api
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["machine.openshift.io"]
+    resources: ["machinesets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: karpenter-operator
+  namespace: openshift-machine-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: karpenter-operator
+subjects:
+  - kind: ServiceAccount
+    name: karpenter-operator
+    namespace: openshift-karpenter
 ---
 # Operand cross-namespace RBAC: karpenter SA needs to resolve kube-dns.
 apiVersion: rbac.authorization.k8s.io/v1

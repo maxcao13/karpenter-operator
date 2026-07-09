@@ -39,9 +39,10 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 # --- Download & render -------------------------------------------------------
 echo "==> Fetching ${REPO_NAME} @ ${OPERAND_BRANCH}..."
-curl -sSL --retry 3 --retry-delay 2 "https://github.com/${REPO_NAME}/archive/refs/heads/${OPERAND_BRANCH}.tar.gz" | tar -xz -C "$tmpdir"
-chart_dir=$(find "$tmpdir" -type d -name karpenter -path "*/charts/karpenter" 2>/dev/null | head -1)
-[[ -n "$chart_dir" ]] || { echo "ERROR: failed to fetch chart" >&2; exit 1; }
+git clone --depth 1 --branch "$OPERAND_BRANCH" --single-branch --filter=blob:none --sparse "https://github.com/${REPO_NAME}.git" "$tmpdir/repo"
+git -C "$tmpdir/repo" sparse-checkout set charts/karpenter pkg/
+chart_dir="$tmpdir/repo/charts/karpenter"
+[[ -d "$chart_dir" ]] || { echo "ERROR: charts/karpenter not found in repo" >&2; exit 1; }
 crd_dir="${chart_dir}/crds"
 
 echo "==> Rendering Helm chart..."

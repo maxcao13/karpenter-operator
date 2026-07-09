@@ -8,6 +8,9 @@ import (
 	"github.com/openshift/karpenter-operator/pkg/controllers/clusteroperator"
 	"github.com/openshift/karpenter-operator/pkg/controllers/crd"
 	"github.com/openshift/karpenter-operator/pkg/controllers/deployment"
+	"github.com/openshift/karpenter-operator/pkg/controllers/nodeclass"
+
+	configv1 "github.com/openshift/api/config/v1"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -21,16 +24,15 @@ type Config struct {
 	KarpenterImage  string
 	ClusterName     string
 	ClusterEndpoint string
+	InfraName       string
 	ReleaseVersion  string
+	TopologyMode    configv1.TopologyMode
 	CloudProvider   common.CloudProvider
 }
 
-func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
-	// This abstraction makes it simple to turn on/off controllers based on the topology.
-	// TODO(maxcao13): Remove this TODO once we actually add topology detection and different interfaces for it.
-	// e.g., If HCP Topology, append OpenshiftEC2NodeClass controller.
-	// e.g., if Standalone Topology, add ClusterOperator controller.
-	return []Controller{
+func NewControllers(mgr ctrl.Manager, cfg *Config) ([]Controller, error) {
+	// This abstraction makes it simple to turn on/off commonControllers based on the topology.
+	commonControllers := []Controller{
 		crd.NewController(mgr, &crd.ControllerConfig{
 			Namespace: cfg.Namespace,
 			CRDs:      append(assets.CoreCRDs, cfg.CloudProvider.CRDs()...),
@@ -42,12 +44,28 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 			ClusterEndpoint: cfg.ClusterEndpoint,
 			CloudProvider:   cfg.CloudProvider,
 		}),
-		clusteroperator.NewController(mgr, &clusteroperator.ControllerConfig{
-			Namespace:                cfg.Namespace,
-			ReleaseVersion:           cfg.ReleaseVersion,
-			AdditionalRelatedObjects: cfg.CloudProvider.RelatedObjects(),
+		nodeclass.NewController(mgr, &nodeclass.ControllerConfig{
+			InfraName:  cfg.InfraName,
+			Reconciler: cfg.CloudProvider.NodeClass(),
 		}),
 	}
+
+	switch cfg.TopologyMode {
+	case configv1.HighlyAvailableTopologyMode, configv1.SingleReplicaTopologyMode:
+		// OpenShift Standalone
+		commonControllers = append(commonControllers,
+			clusteroperator.NewController(mgr, &clusteroperator.ControllerConfig{
+				Namespace:                cfg.Namespace,
+				ReleaseVersion:           cfg.ReleaseVersion,
+				AdditionalRelatedObjects: cfg.CloudProvider.RelatedObjects(),
+			}),
+		)
+	case configv1.ExternalTopologyMode:
+		// HyperShift
+	default:
+		return nil, fmt.Errorf("unknown/unsupported topology mode: %s", cfg.TopologyMode)
+	}
+	return commonControllers, nil
 }
 
 func Setup(mgr ctrl.Manager, controllers ...Controller) error {

@@ -55,7 +55,9 @@ func (o *Options) ResolveControllerConfig(infra common.InfrastructureInfo, provi
 		KarpenterImage:  provider.KarpenterImage(),
 		ClusterName:     clusterName,
 		ClusterEndpoint: clusterEndpoint,
+		InfraName:       infra.InfraName,
 		ReleaseVersion:  o.ReleaseVersion,
+		TopologyMode:    infra.TopologyMode,
 		CloudProvider:   provider,
 	}
 }

@@ -4,34 +4,43 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/openshift/karpenter-operator/pkg/assets"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 	"github.com/openshift/karpenter-operator/pkg/controllers"
+	"github.com/openshift/karpenter-operator/pkg/util"
 
 	configv1 "github.com/openshift/api/config/v1"
+	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/retry"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var scheme = runtime.NewScheme()
 
+const machineAPINamespace = "openshift-machine-api"
+
 func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = configv1.Install(scheme)
+	_ = machinev1beta1.Install(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 }
 
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) error { //nolint:gocyclo
 	setupLog := ctrl.Log.WithName("setup")
 
 	restCfg, err := ctrl.GetConfig()
@@ -39,7 +48,12 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to load kube config: %w", err)
 	}
 
-	infra, err := discoverInfrastructure(ctx, restCfg)
+	setupClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return fmt.Errorf("failed to create client: %w", err)
+	}
+
+	infra, err := discoverInfrastructure(ctx, setupClient)
 	if err != nil {
 		return fmt.Errorf("failed to discover infrastructure: %w", err)
 	}
@@ -56,7 +70,6 @@ func Run(ctx context.Context, opts Options) error {
 		"topologyMode", infra.TopologyMode,
 		"region", infra.Region,
 		"clusterName", cfg.ClusterName,
-		"clusterEndpoint", cfg.ClusterEndpoint,
 		"karpenterImage", cfg.KarpenterImage,
 	)
 
@@ -64,9 +77,23 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to add cloud provider types to scheme: %w", err)
 	}
 
+	allCRDs := append(assets.CoreCRDs, provider.CRDs()...)
+	if err := ensureCRDs(ctx, setupClient, allCRDs); err != nil {
+		return fmt.Errorf("failed to apply CRDs: %w", err)
+	}
+
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme: scheme,
 		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&machinev1beta1.MachineSet{}: {Namespaces: map[string]cache.Config{
+					machineAPINamespace: {},
+				}},
+				&corev1.Secret{}: {Namespaces: map[string]cache.Config{
+					opts.Namespace:      {},
+					machineAPINamespace: {},
+				}},
+			},
 			DefaultNamespaces: map[string]cache.Config{
 				opts.Namespace: {},
 			},
@@ -80,7 +107,11 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("failed to create manager: %w", err)
 	}
 
-	if err := controllers.Setup(mgr, controllers.NewControllers(mgr, cfg)...); err != nil {
+	ctrls, err := controllers.NewControllers(mgr, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create controllers: %w", err)
+	}
+	if err := controllers.Setup(mgr, ctrls...); err != nil {
 		return err
 	}
 
@@ -99,12 +130,7 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-func discoverInfrastructure(ctx context.Context, cfg *rest.Config) (common.InfrastructureInfo, error) {
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		return common.InfrastructureInfo{}, fmt.Errorf("failed to create client for infrastructure discovery: %w", err)
-	}
-
+func discoverInfrastructure(ctx context.Context, c client.Client) (common.InfrastructureInfo, error) {
 	infra := &configv1.Infrastructure{}
 	if err := c.Get(ctx, types.NamespacedName{Name: "cluster"}, infra); err != nil {
 		return common.InfrastructureInfo{}, fmt.Errorf("failed to get Infrastructure CR: %w", err)
@@ -128,4 +154,42 @@ func discoverInfrastructure(ctx context.Context, cfg *rest.Config) (common.Infra
 		InfraName:       infra.Status.InfrastructureName,
 		ClusterEndpoint: infra.Status.APIServerInternalURL,
 	}, nil
+}
+
+// ensureCRDs applies all Karpenter CRDs before the manager starts so that
+// controller informers can establish watches without racing the CRD controller.
+func ensureCRDs(ctx context.Context, c client.Client, crds []*apiextensionsv1.CustomResourceDefinition) error {
+	log := ctrl.Log.WithName("setup")
+	for _, desired := range crds {
+		var op controllerutil.OperationResult
+		err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			crd := &apiextensionsv1.CustomResourceDefinition{}
+			crd.Name = desired.Name
+			var e error
+			op, e = controllerutil.CreateOrUpdate(ctx, c, crd, func() error {
+				crd.Spec = *desired.Spec.DeepCopy()
+				return nil
+			})
+			return e
+		})
+		if err != nil {
+			return fmt.Errorf("failed to apply CRD %s: %w", desired.Name, err)
+		}
+		if op != controllerutil.OperationResultNone {
+			log.Info("applied CRD", "name", desired.Name, "operation", op)
+		}
+	}
+
+	for _, desired := range crds {
+		if err := wait.PollUntilContextTimeout(ctx, util.CRDEstablishInterval, util.CRDEstablishTimeout, true, func(ctx context.Context) (bool, error) {
+			crd := &apiextensionsv1.CustomResourceDefinition{}
+			if err := c.Get(ctx, types.NamespacedName{Name: desired.Name}, crd); err != nil {
+				return false, nil //nolint:nilerr // retry until CRD appears
+			}
+			return util.CRDEstablished(crd), nil
+		}); err != nil {
+			return fmt.Errorf("timed out waiting for CRD %s to become Established: %w", desired.Name, err)
+		}
+	}
+	return nil
 }
