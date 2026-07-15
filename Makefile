@@ -62,7 +62,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	  true; \
 	else \
 	  echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
-	  GOBIN=$(LOCALBIN) GOFLAGS= go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+	  curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(LOCALBIN) $(GOLANGCI_LINT_VERSION); \
 	fi
 
 .PHONY: helm
@@ -92,7 +92,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 JUNIT_REPORT := $(if $(ARTIFACT_DIR),--ginkgo.junit-report="$(ARTIFACT_DIR)/junit_e2e.xml")
 
 .PHONY: update
-update: fmt generate manifests manifest-diff-sync 
+update: fmt generate manifests lint-fix manifest-diff-sync
 
 .PHONY: generate
 generate: $(CONTROLLER_GEN) ## Generate deepcopy methods.
@@ -113,7 +113,11 @@ vet: ## Run go vet against code.
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ## Run golangci-lint against code.
-	GOFLAGS= $(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) run ./... --config ./.golangci.yml -v
+
+.PHONY: lint-fix
+lint-fix: $(GOLANGCI_LINT) ## Run golangci-lint against code and fix issues.
+	$(GOLANGCI_LINT) run ./... --config ./.golangci.yml -v --fix
 
 .PHONY: manifest-diff
 manifest-diff: $(YQ) $(HELM) ## Check RBAC manifests are in sync (no writes).
