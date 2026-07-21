@@ -4,6 +4,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// SingletonName is the well-known name of the singleton Karpenter CR.
+const SingletonName = "default"
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=karpenters,scope=Cluster,shortName=karp

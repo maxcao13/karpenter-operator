@@ -103,7 +103,7 @@ func newTestController(objs ...client.Object) *Controller {
 func karpenterCR(logLevel autoscalingv1alpha1.KarpenterLogLevel) *autoscalingv1alpha1.Karpenter {
 	return &autoscalingv1alpha1.Karpenter{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: singletonName,
+			Name: autoscalingv1alpha1.SingletonName,
 			UID:  types.UID("test-uid-1234"),
 		},
 		Spec: autoscalingv1alpha1.KarpenterSpec{
@@ -139,7 +139,7 @@ func TestReconcile_CreatesResources(t *testing.T) {
 	}, sa)).To(Succeed())
 	g.Expect(sa.OwnerReferences).To(HaveLen(1))
 	g.Expect(sa.OwnerReferences[0].Kind).To(Equal("Karpenter"))
-	g.Expect(sa.OwnerReferences[0].Name).To(Equal(singletonName))
+	g.Expect(sa.OwnerReferences[0].Name).To(Equal(autoscalingv1alpha1.SingletonName))
 
 	// Deployment
 	dep := &appsv1.Deployment{}

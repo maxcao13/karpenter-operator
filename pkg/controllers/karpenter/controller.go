@@ -28,7 +28,6 @@ import (
 
 const (
 	karpenterName = "karpenter"
-	singletonName = "default"
 	fieldManager  = "karpenter-operator"
 )
 
@@ -78,7 +77,7 @@ func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	log.FromContext(ctx).Info("reconciling karpenter deployment")
 
 	karp := &autoscalingv1alpha1.Karpenter{}
-	if err := c.client.Get(ctx, client.ObjectKey{Name: singletonName}, karp); err != nil {
+	if err := c.client.Get(ctx, client.ObjectKey{Name: autoscalingv1alpha1.SingletonName}, karp); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -257,7 +256,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	managedClusterRoles := namesFromClusterRoles(append(assets.CoreRBAC.ClusterRoles, cloudRBAC.ClusterRoles...))
 	managedClusterRoleBindings := namesFromClusterRoleBindings(append(assets.CoreRBAC.ClusterRoleBindings, cloudRBAC.ClusterRoleBindings...))
 
-	reconcileRequest := []ctrl.Request{{NamespacedName: client.ObjectKey{Name: singletonName}}}
+	reconcileRequest := []ctrl.Request{{NamespacedName: client.ObjectKey{Name: autoscalingv1alpha1.SingletonName}}}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(c.Name()).

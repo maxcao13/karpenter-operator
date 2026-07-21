@@ -30,7 +30,7 @@ var testConfig = &ControllerConfig{
 }
 
 var testKarpenterCR = &autoscalingv1alpha1.Karpenter{
-	ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+	ObjectMeta: metav1.ObjectMeta{Name: autoscalingv1alpha1.SingletonName},
 }
 
 func testScheme() *runtime.Scheme {
@@ -243,54 +243,61 @@ func TestReconcile(t *testing.T) { //nolint:gocyclo
 }
 
 func TestConditionHelpers(t *testing.T) {
+	type expectedCondition struct {
+		status configv1.ConditionStatus
+		reason string
+	}
+
 	testCases := []struct {
-		name              string
-		conditions        []*configac.ClusterOperatorStatusConditionApplyConfiguration
-		expectAvailable   configv1.ConditionStatus
-		expectProgressing configv1.ConditionStatus
-		expectDegraded    configv1.ConditionStatus
-		expectUpgradeable configv1.ConditionStatus
+		name       string
+		conditions []*configac.ClusterOperatorStatusConditionApplyConfiguration
+		expect     map[configv1.ClusterStatusConditionType]expectedCondition
 	}{
 		{
-			name:              "availableConditions",
-			conditions:        availableConditions("AsExpected", "all good"),
-			expectAvailable:   configv1.ConditionTrue,
-			expectProgressing: configv1.ConditionFalse,
-			expectDegraded:    configv1.ConditionFalse,
-			expectUpgradeable: configv1.ConditionTrue,
+			name:       "availableConditions",
+			conditions: availableConditions("KarpenterNotFound", "all good"),
+			expect: map[configv1.ClusterStatusConditionType]expectedCondition{
+				configv1.OperatorAvailable:   {configv1.ConditionTrue, "KarpenterNotFound"},
+				configv1.OperatorProgressing: {configv1.ConditionFalse, "AsExpected"},
+				configv1.OperatorDegraded:    {configv1.ConditionFalse, "AsExpected"},
+				configv1.OperatorUpgradeable: {configv1.ConditionTrue, "AsExpected"},
+			},
 		},
 		{
-			name:              "progressingConditions",
-			conditions:        progressingConditions("Rolling", "rolling out"),
-			expectAvailable:   configv1.ConditionTrue,
-			expectProgressing: configv1.ConditionTrue,
-			expectDegraded:    configv1.ConditionFalse,
-			expectUpgradeable: configv1.ConditionTrue,
+			name:       "progressingConditions",
+			conditions: progressingConditions("Rolling", "rolling out"),
+			expect: map[configv1.ClusterStatusConditionType]expectedCondition{
+				configv1.OperatorAvailable:   {configv1.ConditionTrue, "AsExpected"},
+				configv1.OperatorProgressing: {configv1.ConditionTrue, "Rolling"},
+				configv1.OperatorDegraded:    {configv1.ConditionFalse, "AsExpected"},
+				configv1.OperatorUpgradeable: {configv1.ConditionTrue, "AsExpected"},
+			},
 		},
 		{
-			name:              "degradedConditions",
-			conditions:        degradedConditions("Broken", "something failed"),
-			expectAvailable:   configv1.ConditionTrue,
-			expectProgressing: configv1.ConditionFalse,
-			expectDegraded:    configv1.ConditionTrue,
-			expectUpgradeable: configv1.ConditionTrue,
+			name:       "degradedConditions",
+			conditions: degradedConditions("Broken", "something failed"),
+			expect: map[configv1.ClusterStatusConditionType]expectedCondition{
+				configv1.OperatorAvailable:   {configv1.ConditionTrue, "AsExpected"},
+				configv1.OperatorProgressing: {configv1.ConditionFalse, "AsExpected"},
+				configv1.OperatorDegraded:    {configv1.ConditionTrue, "Broken"},
+				configv1.OperatorUpgradeable: {configv1.ConditionTrue, "AsExpected"},
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			expected := map[configv1.ClusterStatusConditionType]configv1.ConditionStatus{
-				configv1.OperatorAvailable:   tc.expectAvailable,
-				configv1.OperatorProgressing: tc.expectProgressing,
-				configv1.OperatorDegraded:    tc.expectDegraded,
-				configv1.OperatorUpgradeable: tc.expectUpgradeable,
-			}
 			for _, c := range tc.conditions {
-				if c.Type == nil || c.Status == nil {
-					t.Fatal("condition missing Type or Status")
+				condType := *c.Type
+				want, ok := tc.expect[condType]
+				if !ok {
+					t.Fatalf("unexpected condition type: %s", condType)
 				}
-				if want, ok := expected[*c.Type]; ok && *c.Status != want {
-					t.Errorf("%s: got %s, want %s", *c.Type, *c.Status, want)
+				if *c.Status != want.status {
+					t.Errorf("%s status: got %s, want %s", condType, *c.Status, want.status)
+				}
+				if *c.Reason != want.reason {
+					t.Errorf("%s reason: got %q, want %q", condType, *c.Reason, want.reason)
 				}
 			}
 		})

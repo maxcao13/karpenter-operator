@@ -62,7 +62,7 @@ func (r *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 
 func (r *Controller) operandConditions(ctx context.Context) []*configac.ClusterOperatorStatusConditionApplyConfiguration {
 	karp := &autoscalingv1alpha1.Karpenter{}
-	if err := r.client.Get(ctx, client.ObjectKey{Name: "cluster"}, karp); err != nil {
+	if err := r.client.Get(ctx, client.ObjectKey{Name: autoscalingv1alpha1.SingletonName}, karp); err != nil {
 		if apierrors.IsNotFound(err) {
 			return availableConditions("KarpenterNotFound", fmt.Sprintf("at version %s", r.config.ReleaseVersion))
 		}
@@ -151,7 +151,7 @@ func (r *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		}))).
 		Watches(&autoscalingv1alpha1.Karpenter{}, handler.EnqueueRequestsFromMapFunc(
 			func(_ context.Context, o client.Object) []ctrl.Request {
-				if o.GetName() != "cluster" {
+				if o.GetName() != autoscalingv1alpha1.SingletonName {
 					return nil
 				}
 				return reconcileRequest
@@ -184,9 +184,9 @@ func condition(condType configv1.ClusterStatusConditionType, status configv1.Con
 func availableConditions(reason, message string) []*configac.ClusterOperatorStatusConditionApplyConfiguration {
 	return []*configac.ClusterOperatorStatusConditionApplyConfiguration{
 		condition(configv1.OperatorAvailable, configv1.ConditionTrue, reason, message),
-		condition(configv1.OperatorProgressing, configv1.ConditionFalse, reason, ""),
-		condition(configv1.OperatorDegraded, configv1.ConditionFalse, reason, ""),
-		condition(configv1.OperatorUpgradeable, configv1.ConditionTrue, reason, ""),
+		condition(configv1.OperatorProgressing, configv1.ConditionFalse, "AsExpected", ""),
+		condition(configv1.OperatorDegraded, configv1.ConditionFalse, "AsExpected", ""),
+		condition(configv1.OperatorUpgradeable, configv1.ConditionTrue, "AsExpected", ""),
 	}
 }
 
