@@ -1,0 +1,6 @@
+apiVersion: autoscaling.openshift.io/v1alpha1
+kind: Karpenter
+metadata:
+  name: cluster
+spec:
+  logLevel: info

@@ -35,11 +35,13 @@ $(LOCALBIN):
 YQ ?= $(LOCALBIN)/yq
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 HELM ?= $(LOCALBIN)/helm
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 
 ## Tool Versions
 YQ_VERSION            ?= v4.53.2
 GOLANGCI_LINT_VERSION ?= v2.12.1
 HELM_VERSION          ?= v4.2.0
+CONTROLLER_GEN_VERSION ?= v0.20.0
 
 ##@ Tools
 
@@ -60,7 +62,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	  true; \
 	else \
 	  echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."; \
-	  GOBIN=$(LOCALBIN) GOFLAGS= go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+	  curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(LOCALBIN) $(GOLANGCI_LINT_VERSION); \
 	fi
 
 .PHONY: helm
@@ -75,9 +77,31 @@ $(HELM): $(LOCALBIN)
 	    | tar -xz --strip-components=1 -C $(LOCALBIN) "$${PLATFORM}/helm"; \
 	fi
 
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Install controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(LOCALBIN)
+	@if test -s $(CONTROLLER_GEN) && $(CONTROLLER_GEN) --version 2>/dev/null | grep -q "$(CONTROLLER_GEN_VERSION)"; then \
+	  true; \
+	else \
+	  echo "Installing controller-gen $(CONTROLLER_GEN_VERSION)..."; \
+	  GOBIN=$(LOCALBIN) GOFLAGS= go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION); \
+	fi
+
 ##@ Development
 
 JUNIT_REPORT := $(if $(ARTIFACT_DIR),--ginkgo.junit-report="$(ARTIFACT_DIR)/junit_e2e.xml")
+
+.PHONY: update
+update: fmt generate manifests lint-fix manifest-diff-sync
+
+.PHONY: generate
+generate: $(CONTROLLER_GEN) ## Generate deepcopy methods.
+	$(CONTROLLER_GEN) object paths="./pkg/apis/..."
+
+.PHONY: manifests
+manifests: $(CONTROLLER_GEN) ## Generate CRD manifests.
+	$(CONTROLLER_GEN) crd paths="./pkg/apis/..." output:crd:artifacts:config=install
+	@mv install/autoscaling.openshift.io_karpenters.yaml install/00_autoscaling.openshift.io_karpenters.yaml
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -89,7 +113,11 @@ vet: ## Run go vet against code.
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ## Run golangci-lint against code.
-	GOFLAGS= $(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) run ./... --config ./.golangci.yml -v
+
+.PHONY: lint-fix
+lint-fix: $(GOLANGCI_LINT) ## Run golangci-lint against code and fix issues.
+	$(GOLANGCI_LINT) run ./... --config ./.golangci.yml -v --fix
 
 .PHONY: manifest-diff
 manifest-diff: $(YQ) $(HELM) ## Check RBAC manifests are in sync (no writes).
@@ -101,11 +129,13 @@ manifest-diff-sync: $(YQ) $(HELM) ## Regenerate RBAC manifests from sources.
 	YQ=$(YQ) HELM=$(HELM) hack/manifest-diff-upstream.sh --sync
 	YQ=$(YQ) hack/manifest-diff.sh --sync
 
-.PHONY: verify-deps
-verify-deps: ## Verify go.mod and vendor are tidy.
-	go mod tidy
-	go mod vendor
-	git diff --exit-code go.mod go.sum vendor/
+.PHONY: verify-git-clean
+verify-git-clean: vendor
+	git diff-index --cached --quiet --ignore-submodules HEAD --
+	git diff-files --quiet --ignore-submodules
+	git diff --exit-code HEAD --
+	$(eval STATUS = $(shell git status -s))
+	$(if $(strip $(STATUS)),$(error untracked files detected: ${STATUS}))
 
 .PHONY: test
 test: ## Run unit tests.
@@ -116,7 +146,10 @@ e2e: ## Run e2e tests (requires KUBECONFIG).
 	go test ./test/suites/... -count=1 -timeout 30m -v $(JUNIT_REPORT)
 
 .PHONY: verify
-verify: vet fmt lint manifest-diff verify-deps test ## Run all verification checks.
+verify: vet lint test ## Run all verification checks.
+	$(MAKE) update
+	$(MAKE) manifest-diff
+	$(MAKE) verify-git-clean
 
 .PHONY: vendor
 vendor: ## Tidy and vendor Go modules.

@@ -7,7 +7,7 @@ import (
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 	"github.com/openshift/karpenter-operator/pkg/controllers/clusteroperator"
 	"github.com/openshift/karpenter-operator/pkg/controllers/crd"
-	"github.com/openshift/karpenter-operator/pkg/controllers/deployment"
+	karpenterctrl "github.com/openshift/karpenter-operator/pkg/controllers/karpenter"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -35,7 +35,7 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 			Namespace: cfg.Namespace,
 			CRDs:      append(assets.CoreCRDs, cfg.CloudProvider.CRDs()...),
 		}),
-		deployment.NewController(mgr, &deployment.ControllerConfig{
+		karpenterctrl.NewController(mgr, &karpenterctrl.ControllerConfig{
 			Namespace:       cfg.Namespace,
 			KarpenterImage:  cfg.KarpenterImage,
 			ClusterName:     cfg.ClusterName,

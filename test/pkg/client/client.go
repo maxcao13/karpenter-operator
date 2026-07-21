@@ -3,6 +3,8 @@ package client
 import (
 	"fmt"
 
+	autoscalingv1alpha1 "github.com/openshift/karpenter-operator/pkg/apis/autoscaling/v1alpha1"
+
 	configv1 "github.com/openshift/api/config/v1"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -20,6 +22,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(configv1.Install(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	utilruntime.Must(autoscalingv1alpha1.AddToScheme(scheme))
 }
 
 // NewClient returns a controller-runtime client configured from the

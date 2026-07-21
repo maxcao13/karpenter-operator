@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	autoscalingv1alpha1 "github.com/openshift/karpenter-operator/pkg/apis/autoscaling/v1alpha1"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 	"github.com/openshift/karpenter-operator/pkg/controllers"
@@ -29,6 +30,7 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = configv1.Install(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
+	_ = autoscalingv1alpha1.AddToScheme(scheme)
 }
 
 func Run(ctx context.Context, opts Options) error {
