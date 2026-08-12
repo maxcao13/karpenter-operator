@@ -10,6 +10,7 @@ import (
 	karpenterctrl "github.com/openshift/karpenter-operator/pkg/controllers/karpenter"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 )
 
 type Controller interface {
@@ -24,6 +25,10 @@ type Config struct {
 	ReleaseVersion    string
 	ManagementCluster bool
 	CloudProvider     common.CloudProvider
+
+	// HostedCluster is a secondary cluster.Cluster targeting the hosted cluster where
+	// Karpenter CRDs (NodePool, NodeClaim, NodeClass) live. Nil in standalone mode.
+	HostedCluster cluster.Cluster
 }
 
 func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
@@ -32,7 +37,7 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 	var controllers []Controller
 
 	// TODO(maxcao13): For now, on HCP we don't run any controllers at all.
-	// In future work, we need to start the necessary controllers watching the guest cluster
+	// In future work, we need to start the necessary controllers watching the hosted cluster
 	// So for now disable all of them on HCP.
 	if !cfg.ManagementCluster {
 		controllers = append(controllers,

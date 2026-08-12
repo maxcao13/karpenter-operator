@@ -7,13 +7,11 @@ import (
 
 	autoscalingv1alpha1 "github.com/openshift/karpenter-operator/pkg/apis/autoscaling/v1alpha1"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
-
-	configv1 "github.com/openshift/api/config/v1"
+	testfake "github.com/openshift/karpenter-operator/test/pkg/fake"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,17 +28,9 @@ const (
 	testClusterEndpoint = "https://api.test-cluster.example.com:6443"
 )
 
-// fakeCloudProvider implements common.CloudProvider for testing.
-type fakeCloudProvider struct{}
-
-func (f *fakeCloudProvider) AddToScheme(_ *runtime.Scheme) error { return nil }
-func (f *fakeCloudProvider) KarpenterImage() string              { return testKarpenterImage }
-func (f *fakeCloudProvider) CRDs() []*apiextensionsv1.CustomResourceDefinition {
-	return nil
-}
-func (f *fakeCloudProvider) RelatedObjects() []configv1.ObjectReference { return nil }
-func (f *fakeCloudProvider) RBAC() common.RBACAssets {
-	return common.RBACAssets{
+var testCloudProvider = &testfake.CloudProvider{
+	Image: testKarpenterImage,
+	CloudRBAC: common.RBACAssets{
 		ClusterRoles: []*rbacv1.ClusterRole{
 			{ObjectMeta: metav1.ObjectMeta{Name: "karpenter-cloud-test"}, Rules: []rbacv1.PolicyRule{
 				{APIGroups: []string{"test.io"}, Resources: []string{"widgets"}, Verbs: []string{"get", "list"}},
@@ -53,10 +43,8 @@ func (f *fakeCloudProvider) RBAC() common.RBACAssets {
 				{Kind: "ServiceAccount", Name: karpenterName, Namespace: testNamespace},
 			}},
 		},
-	}
-}
-func (f *fakeCloudProvider) OperandConfig() common.OperandCloudConfig {
-	return common.OperandCloudConfig{
+	},
+	CloudConfig: common.OperandCloudConfig{
 		CredentialsSecretName: "karpenter-cloud-credentials",
 		Env: []corev1.EnvVar{
 			{Name: "CLOUD_REGION", Value: "us-east-1"},
@@ -69,7 +57,7 @@ func (f *fakeCloudProvider) OperandConfig() common.OperandCloudConfig {
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "cloud-creds", MountPath: "/var/run/secrets/cloud", ReadOnly: true},
 		},
-	}
+	},
 }
 
 func testScheme() *runtime.Scheme {
@@ -94,7 +82,7 @@ func newTestController(objs ...client.Object) *Controller {
 			KarpenterImage:  testKarpenterImage,
 			ClusterName:     testClusterName,
 			ClusterEndpoint: testClusterEndpoint,
-			CloudProvider:   &fakeCloudProvider{},
+			CloudProvider:   testCloudProvider,
 		},
 		imagePullPolicy: corev1.PullIfNotPresent,
 	}

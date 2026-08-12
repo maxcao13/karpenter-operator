@@ -23,9 +23,7 @@ func main() {
 	flag.StringVar(&opts.MetricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to")
 	flag.StringVar(&opts.ProbeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to")
 	flag.BoolVar(&opts.LeaderElect, "leader-elect", false, "Enable leader election for controller manager")
-	// TODO(maxcao13): this is a no-op flag for now. We need it to make HCP not complaining about an unsupported flag.
-	// Making this flag manage Karpenter resources in HCP guest cluster is tracked in https://redhat.atlassian.net/browse/AUTOSCALE-877
-	flag.StringVar(&opts.TargetKubeconfig, "target-kubeconfig", "", "Path to the target cluster kubeconfig where Karpenter manages resources. Optional flag, but required for Management mode")
+	flag.StringVar(&opts.TargetKubeconfig, "target-kubeconfig", "", "Path to the target cluster kubeconfig where Karpenter manages resources")
 
 	zapOpts := zap.Options{Development: false}
 	zapOpts.BindFlags(flag.CommandLine)

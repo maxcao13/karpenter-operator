@@ -56,7 +56,7 @@ type Options struct {
 	Region string
 
 	// TargetKubeconfig is set via --target-kubeconfig. Required when ManagementCluster
-	// is true; points at the guest cluster where Karpenter CRDs live.
+	// is true; points at the hosted cluster where Karpenter CRDs live.
 	TargetKubeconfig string
 
 	// ManagementCluster is read from the MANAGEMENT_CLUSTER env var. When true, the

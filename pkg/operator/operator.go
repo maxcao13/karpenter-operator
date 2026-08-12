@@ -16,10 +16,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -93,6 +95,25 @@ func Run(ctx context.Context, opts Options) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create manager: %w", err)
+	}
+
+	// Only build a hosted cluster if we are running in management cluster mode and a target kubeconfig is provided
+	if opts.TargetKubeconfig != "" && opts.ManagementCluster {
+		restCfg, err := clientcmd.BuildConfigFromFlags("", opts.TargetKubeconfig)
+		if err != nil {
+			return fmt.Errorf("loading kubeconfig %q: %w", opts.TargetKubeconfig, err)
+		}
+		hostedCluster, err := cluster.New(restCfg, func(o *cluster.Options) {
+			o.Scheme = scheme
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create hosted cluster: %w", err)
+		}
+		if err := mgr.Add(hostedCluster); err != nil {
+			return fmt.Errorf("failed to add hosted cluster to manager: %w", err)
+		}
+		cfg.HostedCluster = hostedCluster
+		setupLog.Info("hosted cluster configured", "kubeconfig", opts.TargetKubeconfig)
 	}
 
 	if err := controllers.Setup(mgr, controllers.NewControllers(mgr, cfg)...); err != nil {
