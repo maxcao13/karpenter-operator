@@ -1,72 +1,69 @@
 package controllers
 
 import (
+	"slices"
 	"testing"
 
-	configv1 "github.com/openshift/api/config/v1"
-
 	testfake "github.com/openshift/karpenter-operator/test/pkg/fake"
+
+	configv1 "github.com/openshift/api/config/v1"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/samber/lo"
 )
 
-// fakeManager satisfies ctrl.Manager for testing NewControllers. Only GetClient
-// is called by the controller constructors.
-type fakeManager struct {
-	ctrl.Manager
-	cl client.Client
-}
-
-func (f *fakeManager) GetClient() client.Client {
-	return f.cl
-}
-
-func newFakeManager() *fakeManager {
+func newFakeManager() *testfake.Manager {
 	s := runtime.NewScheme()
 	_ = configv1.Install(s)
 	_ = apiextensionsv1.AddToScheme(s)
-	return &fakeManager{
-		cl: fakeclient.NewClientBuilder().WithScheme(s).Build(),
+	return &testfake.Manager{
+		Cl: fakeclient.NewClientBuilder().WithScheme(s).Build(),
+		Ca: &testfake.Cache{},
 	}
 }
 
-func TestNewControllers_StandaloneMode(t *testing.T) {
-	cfg := &Config{
-		Namespace:         "openshift-karpenter",
-		KarpenterImage:    "registry.example.com/karpenter:latest",
-		ClusterName:       "test-cluster",
-		ClusterEndpoint:   "https://api.example.com:6443",
-		ReleaseVersion:    "4.23.0",
-		ManagementCluster: false,
-		CloudProvider:     &testfake.CloudProvider{Image: "test:latest"},
+func TestNewControllers(t *testing.T) {
+	tests := []struct {
+		name              string
+		managementCluster bool
+		wantControllers   []string
+	}{
+		{
+			name:              "When running in standalone mode it should enable all controllers",
+			managementCluster: false,
+			wantControllers:   []string{"crd", "karpenter", "clusteroperator"},
+		},
+		{
+			name:              "When running in management cluster mode it should only enable the CRD controller",
+			managementCluster: true,
+			wantControllers:   []string{"crd"},
+		},
 	}
 
-	controllers := NewControllers(newFakeManager(), cfg)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Namespace:         "openshift-karpenter",
+				KarpenterImage:    "quay.io/openshift/karpenter:latest",
+				ClusterName:       "test-cluster",
+				ClusterEndpoint:   "https://api.example.com:6443",
+				ReleaseVersion:    "4.23.0",
+				ManagementCluster: tc.managementCluster,
+				CloudProvider:     &testfake.CloudProvider{Image: "test:latest"},
+			}
 
-	if len(controllers) != 3 {
-		t.Errorf("standalone mode: got %d controllers, want 3", len(controllers))
-	}
-}
+			controllers := NewControllers(newFakeManager(), cfg)
+			names := lo.Map(controllers, func(c Controller, _ int) string {
+				return c.Name()
+			})
 
-func TestNewControllers_ManagementClusterMode(t *testing.T) {
-	cfg := &Config{
-		Namespace:         "openshift-karpenter",
-		KarpenterImage:    "registry.example.com/karpenter:latest",
-		ClusterName:       "test-cluster",
-		ClusterEndpoint:   "https://api.example.com:6443",
-		ReleaseVersion:    "4.23.0",
-		ManagementCluster: true,
-		CloudProvider:     &testfake.CloudProvider{Image: "test:latest"},
-	}
-
-	controllers := NewControllers(newFakeManager(), cfg)
-
-	if len(controllers) != 0 {
-		t.Errorf("management cluster mode: got %d controllers, want 0", len(controllers))
+			if !slices.Equal(names, tc.wantControllers) {
+				t.Errorf("got controllers %v, want %v", names, tc.wantControllers)
+			}
+		})
 	}
 }

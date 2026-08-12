@@ -4,36 +4,51 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/openshift/karpenter-operator/pkg/assets"
-
-	appsv1 "k8s.io/api/apps/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	"github.com/samber/lo"
 )
 
 type ControllerConfig struct {
 	Namespace string
 	CRDs      []*apiextensionsv1.CustomResourceDefinition
+
+	// HostedCluster targets a remote cluster for CRD writes and watches.
+	// When nil, the controller uses the manager's own client and cache (standalone mode).
+	HostedCluster cluster.Cluster
 }
 
 // Controller reconciles the Karpenter CRDs (NodePool, NodeClaim, EC2NodeClass, etc.)
 // so the operand can start its watches and caches.
 type Controller struct {
-	client client.Client
-	config *ControllerConfig
+	targetClient client.Client // writes CRDs to the target cluster
+	targetCache  cache.Cache   // watches CRDs on the target cluster
+	config       *ControllerConfig
 }
 
 func NewController(mgr ctrl.Manager, cfg *ControllerConfig) *Controller {
+	cl := mgr.GetClient()
+	tc := mgr.GetCache()
+	if cfg.HostedCluster != nil {
+		cl = cfg.HostedCluster.GetClient()
+		tc = cfg.HostedCluster.GetCache()
+	}
 	return &Controller{
-		client: mgr.GetClient(),
-		config: cfg,
+		targetClient: cl,
+		targetCache:  tc,
+		config:       cfg,
 	}
 }
 
@@ -56,7 +71,7 @@ func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 func (c *Controller) applyCRD(ctx context.Context, desired *apiextensionsv1.CustomResourceDefinition) error {
 	crd := &apiextensionsv1.CustomResourceDefinition{}
 	crd.Name = desired.Name
-	op, err := controllerutil.CreateOrUpdate(ctx, c.client, crd, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, c.targetClient, crd, func() error {
 		crd.Spec = *desired.Spec.DeepCopy()
 		return nil
 	})
@@ -70,32 +85,38 @@ func (c *Controller) applyCRD(ctx context.Context, desired *apiextensionsv1.Cust
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
-	managedCRDs := crdNames(append(assets.CoreCRDs, c.config.CRDs...))
-	reconcileRequest := []ctrl.Request{{NamespacedName: client.ObjectKey{
-		Namespace: c.config.Namespace,
-		Name:      "karpenter-operator",
-	}}}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named(c.Name()).
-		For(&appsv1.Deployment{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-			return o.GetNamespace() == c.config.Namespace && o.GetName() == "karpenter-operator"
-		}))).
-		Watches(&apiextensionsv1.CustomResourceDefinition{}, handler.EnqueueRequestsFromMapFunc(
-			func(_ context.Context, o client.Object) []ctrl.Request {
-				if !managedCRDs[o.GetName()] {
-					return nil
-				}
-				return reconcileRequest
-			},
-		)).
-		Complete(c)
-}
-
-func crdNames(crds []*apiextensionsv1.CustomResourceDefinition) map[string]bool {
-	m := make(map[string]bool, len(crds))
-	for _, crd := range crds {
-		m[crd.Name] = true
+	ctrlr, err := controller.New(c.Name(), mgr, controller.Options{Reconciler: c})
+	if err != nil {
+		return fmt.Errorf("failed to create controller: %w", err)
 	}
-	return m
+
+	managedCRDs := lo.SliceToMap(c.config.CRDs, func(crd *apiextensionsv1.CustomResourceDefinition) (string, bool) {
+		return crd.Name, true
+	})
+
+	// Watch CRDs on the target cluster (hosted cluster in HCP mode, in-cluster in standalone).
+	if err := ctrlr.Watch(source.Kind(c.targetCache, &apiextensionsv1.CustomResourceDefinition{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, o *apiextensionsv1.CustomResourceDefinition) []reconcile.Request {
+			if !managedCRDs[o.GetName()] {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: client.ObjectKey{
+				Namespace: c.config.Namespace,
+				Name:      "karpenter-operator",
+			}}}
+		}),
+	)); err != nil {
+		return fmt.Errorf("failed to watch CRDs: %w", err)
+	}
+
+	// Trigger initial reconcile at startup to create CRDs before any watches fire.
+	initialSync := make(chan event.GenericEvent, 1)
+	if err := ctrlr.Watch(source.Channel(initialSync, &handler.EnqueueRequestForObject{})); err != nil {
+		return fmt.Errorf("failed to watch initial sync channel: %w", err)
+	}
+	go func() {
+		initialSync <- event.GenericEvent{Object: &apiextensionsv1.CustomResourceDefinition{}}
+	}()
+
+	return nil
 }

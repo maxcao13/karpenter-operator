@@ -12,18 +12,18 @@ import (
 // CloudProvider implements common.CloudProvider for unit tests.
 // Set fields to non-zero values to control what the fake returns.
 type CloudProvider struct {
-	Image        string
-	CloudConfig  common.OperandCloudConfig
-	CloudRBAC    common.RBACAssets
-	CloudCRDs    []*apiextensionsv1.CustomResourceDefinition
-	Objects      []configv1.ObjectReference
+	Image       string
+	CloudConfig common.OperandCloudConfig
+	CloudRBAC   common.RBACAssets
+	CloudCRDs   []*apiextensionsv1.CustomResourceDefinition
+	Objects     []configv1.ObjectReference
 }
 
 var _ common.CloudProvider = &CloudProvider{}
 
-func (f *CloudProvider) AddToScheme(_ *runtime.Scheme) error             { return nil }
-func (f *CloudProvider) KarpenterImage() string                          { return f.Image }
-func (f *CloudProvider) OperandConfig() common.OperandCloudConfig        { return f.CloudConfig }
+func (f *CloudProvider) AddToScheme(_ *runtime.Scheme) error               { return nil }
+func (f *CloudProvider) KarpenterImage() string                            { return f.Image }
+func (f *CloudProvider) OperandConfig() common.OperandCloudConfig          { return f.CloudConfig }
 func (f *CloudProvider) CRDs() []*apiextensionsv1.CustomResourceDefinition { return f.CloudCRDs }
-func (f *CloudProvider) RBAC() common.RBACAssets                         { return f.CloudRBAC }
-func (f *CloudProvider) RelatedObjects() []configv1.ObjectReference       { return f.Objects }
+func (f *CloudProvider) RBAC() common.RBACAssets                           { return f.CloudRBAC }
+func (f *CloudProvider) RelatedObjects() []configv1.ObjectReference        { return f.Objects }

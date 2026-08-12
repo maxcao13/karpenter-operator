@@ -83,7 +83,9 @@ func init() {
 	CoreCRDs = []*apiextensionsv1.CustomResourceDefinition{
 		mustDecode(crdContent, "crds/karpenter.sh_nodepools.yaml").(*apiextensionsv1.CustomResourceDefinition),
 		mustDecode(crdContent, "crds/karpenter.sh_nodeclaims.yaml").(*apiextensionsv1.CustomResourceDefinition),
-		mustDecode(crdContent, "crds/karpenter.sh_nodeoverlays.yaml").(*apiextensionsv1.CustomResourceDefinition),
+		// TODO(maxcao13): We don't formally support NodeOverlay yet, so don't deploy it
+		// https://redhat.atlassian.net/browse/RFE-9604
+		// mustDecode(crdContent, "crds/karpenter.sh_nodeoverlays.yaml").(*apiextensionsv1.CustomResourceDefinition),
 	}
 
 	AWSCRDs = []*apiextensionsv1.CustomResourceDefinition{

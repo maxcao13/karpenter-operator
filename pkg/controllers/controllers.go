@@ -14,6 +14,7 @@ import (
 )
 
 type Controller interface {
+	Name() string
 	SetupWithManager(ctrl.Manager) error
 }
 
@@ -36,15 +37,15 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 	// operator is running in management cluster mode (see operator.Options.ManagementCluster).
 	var controllers []Controller
 
-	// TODO(maxcao13): For now, on HCP we don't run any controllers at all.
-	// In future work, we need to start the necessary controllers watching the hosted cluster
-	// So for now disable all of them on HCP.
+	crdCfg := &crd.ControllerConfig{
+		Namespace:     cfg.Namespace,
+		CRDs:          append(assets.CoreCRDs, cfg.CloudProvider.CRDs()...),
+		HostedCluster: cfg.HostedCluster,
+	}
+	controllers = append(controllers, crd.NewController(mgr, crdCfg))
+
 	if !cfg.ManagementCluster {
 		controllers = append(controllers,
-			crd.NewController(mgr, &crd.ControllerConfig{
-				Namespace: cfg.Namespace,
-				CRDs:      append(assets.CoreCRDs, cfg.CloudProvider.CRDs()...),
-			}),
 			karpenterctrl.NewController(mgr, &karpenterctrl.ControllerConfig{
 				Namespace:       cfg.Namespace,
 				KarpenterImage:  cfg.KarpenterImage,
