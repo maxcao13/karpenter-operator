@@ -8,13 +8,15 @@ require (
 	github.com/aws/karpenter-provider-aws v1.13.0 // update during rebase -- version does not matter since we replace it, but its good for docs
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
-	github.com/openshift/api v0.0.0-20260722154127-581cfdf71986
+	github.com/openshift/api v0.0.0-20260805160557-b61243060d5f
 	github.com/openshift/client-go v0.0.0-20260721124015-35d8f3c0e847
+	github.com/openshift/hypershift/api v0.0.0-20260813212031-f7e85cce102c
 	github.com/samber/lo v1.53.0
 	k8s.io/api v0.36.2
 	k8s.io/apiextensions-apiserver v0.36.2
 	k8s.io/apimachinery v0.36.2
 	k8s.io/client-go v0.36.2
+	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	sigs.k8s.io/controller-runtime v0.24.1
 )
 
@@ -101,7 +103,6 @@ require (
 	k8s.io/csi-translation-lib v0.35.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
-	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/karpenter v1.13.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
