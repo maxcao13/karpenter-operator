@@ -16,7 +16,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-const operandCredentialsSecret = "karpenter-cloud-credentials"
+// This has to match the name of the secret created by the CredentialsRequest in the karpenter-operator namespace.
+// This also has to match the name of the secret created by hypershift-operator:
+// - https://github.com/openshift/hypershift/blob/main/control-plane-operator/controllers/hostedcontrolplane/v2/assets/karpenter-operator/karpenter-credentials.yaml
+const operandCredentialsSecret = "karpenter-credentials" // nolint:gosec
 
 func (p *Provider) AddToScheme(s *runtime.Scheme) error {
 	awsKarpenterGV := schema.GroupVersion{Group: awskarpenterapis.Group, Version: "v1"}

@@ -7,7 +7,7 @@ import (
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 	"github.com/openshift/karpenter-operator/pkg/controllers/clusteroperator"
 	"github.com/openshift/karpenter-operator/pkg/controllers/crd"
-	karpenterctrl "github.com/openshift/karpenter-operator/pkg/controllers/karpenter"
+	"github.com/openshift/karpenter-operator/pkg/controllers/karpenter"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -30,6 +30,10 @@ type Config struct {
 	// HostedCluster is a secondary cluster.Cluster targeting the hosted cluster where
 	// Karpenter CRDs (NodePool, NodeClaim, NodeClass) live. Nil in standalone mode.
 	HostedCluster cluster.Cluster
+
+	// TokenMinterImage is the control-plane-operator image used by the token-minter
+	// init container in HCP mode. Required when ManagementCluster is true.
+	TokenMinterImage string
 }
 
 func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
@@ -44,9 +48,20 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 	}
 	controllers = append(controllers, crd.NewController(mgr, crdCfg))
 
-	if !cfg.ManagementCluster {
+	if cfg.ManagementCluster {
 		controllers = append(controllers,
-			karpenterctrl.NewController(mgr, &karpenterctrl.ControllerConfig{
+			karpenter.NewHCPController(mgr, &karpenter.HCPControllerConfig{
+				Namespace:        cfg.Namespace,
+				KarpenterImage:   cfg.KarpenterImage,
+				ClusterName:      cfg.ClusterName,
+				ClusterEndpoint:  cfg.ClusterEndpoint,
+				CloudProvider:    cfg.CloudProvider,
+				TokenMinterImage: cfg.TokenMinterImage,
+			}),
+		)
+	} else {
+		controllers = append(controllers,
+			karpenter.NewOCPController(mgr, &karpenter.OCPControllerConfig{
 				Namespace:       cfg.Namespace,
 				KarpenterImage:  cfg.KarpenterImage,
 				ClusterName:     cfg.ClusterName,
@@ -57,7 +72,8 @@ func NewControllers(mgr ctrl.Manager, cfg *Config) []Controller {
 				Namespace:                cfg.Namespace,
 				ReleaseVersion:           cfg.ReleaseVersion,
 				AdditionalRelatedObjects: cfg.CloudProvider.RelatedObjects(),
-			}))
+			}),
+		)
 	}
 
 	return controllers

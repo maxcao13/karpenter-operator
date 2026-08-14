@@ -18,6 +18,12 @@ const (
 	// The operator manages CRD validation externally.
 	DisableWebhookEnvName = "DISABLE_WEBHOOK"
 
+	// DisableLeaderElectionEnvName disables the operand's leader election.
+	DisableLeaderElectionEnvName = "DISABLE_LEADER_ELECTION"
+
+	// KubeconfigEnvName is the path to the kubeconfig file for the operand to use.
+	KubeconfigEnvName = "KUBECONFIG"
+
 	// HealthProbePortEnvName overrides the port the operand binds for
 	// health and readiness probes.
 	HealthProbePortEnvName = "HEALTH_PROBE_PORT"

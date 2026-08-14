@@ -38,6 +38,11 @@ const (
 	// ManagementClusterEnvName, when "true", tells the operator it is running on a
 	// HyperShift management cluster rather than the cluster it manages Karpenter for.
 	ManagementClusterEnvName = "MANAGEMENT_CLUSTER"
+
+	// TokenMinterImageEnvName is the control-plane-operator image used by the
+	// token-minter init container in the karpenter operand. Required in management
+	// cluster mode.
+	TokenMinterImageEnvName = "TOKEN_MINTER_IMAGE"
 )
 
 type Options struct {
@@ -64,6 +69,10 @@ type Options struct {
 	// execute HyperShift specific logic.
 	ManagementCluster bool
 
+	// TokenMinterImage is read from TOKEN_MINTER_IMAGE env var. Required in management
+	// cluster mode for the karpenter operand's token-minter init container.
+	TokenMinterImage string
+
 	MetricsAddr string
 	ProbeAddr   string
 	LeaderElect bool
@@ -76,6 +85,7 @@ func (o *Options) LoadEnv() error {
 	o.ClusterEndpoint = os.Getenv(ClusterEndpointEnvName)
 	o.Platform = os.Getenv(PlatformEnvName)
 	o.Region = os.Getenv(RegionEnvName)
+	o.TokenMinterImage = os.Getenv(TokenMinterImageEnvName)
 
 	var err error
 	o.ManagementCluster, err = ParseManagementClusterEnv()
@@ -96,6 +106,7 @@ func (o *Options) ResolveControllerConfig(infra common.InfrastructureInfo, provi
 		ReleaseVersion:    o.ReleaseVersion,
 		ManagementCluster: o.ManagementCluster,
 		CloudProvider:     provider,
+		TokenMinterImage:  o.TokenMinterImage,
 	}
 }
 
@@ -120,6 +131,9 @@ func (o *Options) Validate() error {
 		}
 		if o.Region == "" {
 			missing = append(missing, RegionEnvName)
+		}
+		if o.TokenMinterImage == "" {
+			missing = append(missing, TokenMinterImageEnvName)
 		}
 	}
 	if len(missing) > 0 {

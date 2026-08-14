@@ -12,6 +12,7 @@ func TestLoadEnv(t *testing.T) {
 	t.Setenv(PlatformEnvName, "AWS")
 	t.Setenv(RegionEnvName, "us-east-1")
 	t.Setenv(ManagementClusterEnvName, "true")
+	t.Setenv(TokenMinterImageEnvName, "quay.io/openshift/hypershift:latest")
 
 	var opts Options
 	err := opts.LoadEnv()
@@ -36,6 +37,9 @@ func TestLoadEnv(t *testing.T) {
 	}
 	if !opts.ManagementCluster {
 		t.Error("ManagementCluster = false, want true")
+	}
+	if opts.TokenMinterImage != "quay.io/openshift/hypershift:latest" {
+		t.Errorf("TokenMinterImage = %q, want %q", opts.TokenMinterImage, "quay.io/openshift/hypershift:latest")
 	}
 }
 
@@ -103,6 +107,7 @@ func TestValidate(t *testing.T) {
 				ClusterEndpoint:   "https://api-int.example.com:6443",
 				Platform:          "AWS",
 				Region:            "us-east-1",
+				TokenMinterImage:  "quay.io/openshift/hypershift:latest",
 			},
 			wantErr: false,
 		},

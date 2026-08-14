@@ -10,6 +10,7 @@ import (
 	"github.com/openshift/karpenter-operator/pkg/controllers"
 
 	configv1 "github.com/openshift/api/config/v1"
+	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,6 +34,7 @@ func init() {
 	_ = configv1.Install(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 	_ = autoscalingv1alpha1.AddToScheme(scheme)
+	_ = hyperv1.AddToScheme(scheme)
 }
 
 // nolint:gocyclo
