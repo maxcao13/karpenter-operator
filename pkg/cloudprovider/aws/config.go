@@ -36,7 +36,7 @@ func (p *Provider) OperandConfig() common.OperandCloudConfig {
 	return common.OperandCloudConfig{
 		CredentialsSecretName: operandCredentialsSecret,
 		Env: []corev1.EnvVar{
-			{Name: "AWS_REGION", Value: p.region},
+			{Name: common.RegionEnvName, Value: p.region},
 			{Name: "AWS_SHARED_CREDENTIALS_FILE", Value: "/etc/provider/credentials"},
 			{Name: "AWS_SDK_LOAD_CONFIG", Value: "true"},
 		},

@@ -40,7 +40,7 @@ func TestNewControllers(t *testing.T) {
 		{
 			name:              "When running in management cluster mode it should only enable HCP compatible controllers",
 			managementCluster: true,
-			wantControllers:   []string{"crd"},
+			wantControllers:   []string{"crd, karpenter"},
 		},
 	}
 

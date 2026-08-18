@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	cloudaws "github.com/openshift/karpenter-operator/pkg/cloudprovider/aws"
+	cloudazure "github.com/openshift/karpenter-operator/pkg/cloudprovider/azure"
 	"github.com/openshift/karpenter-operator/pkg/cloudprovider/common"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -15,6 +16,8 @@ func GetCloudProvider(ctx context.Context, infra common.InfrastructureInfo) (com
 	switch infra.PlatformType {
 	case configv1.AWSPlatformType:
 		return cloudaws.New(ctx, infra)
+	case configv1.AzurePlatformType:
+		return cloudazure.New(ctx, infra)
 	default:
 		return nil, fmt.Errorf("unsupported platform type: %s", infra.PlatformType)
 	}

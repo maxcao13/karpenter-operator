@@ -19,6 +19,9 @@ var coreContent embed.FS
 //go:embed aws/*.yaml
 var awsContent embed.FS
 
+//go:embed azure/*.yaml
+var azureContent embed.FS
+
 //go:embed crds/*.yaml
 var crdContent embed.FS
 
@@ -36,6 +39,13 @@ var (
 
 	// AWSCRDs holds AWS-specific Karpenter CRDs (EC2NodeClass).
 	AWSCRDs []*apiextensionsv1.CustomResourceDefinition
+
+	// AzureRBACAssets holds Azure-specific operand RBAC.
+	// Decoded once at init from embedded YAML; treat as read-only.
+	AzureRBACAssets common.RBACAssets
+
+	// AzureCRDs holds Azure-specific Karpenter CRDs (AKSNodeClass).
+	AzureCRDs []*apiextensionsv1.CustomResourceDefinition
 )
 
 func init() {
@@ -83,12 +93,25 @@ func init() {
 	CoreCRDs = []*apiextensionsv1.CustomResourceDefinition{
 		mustDecode(crdContent, "crds/karpenter.sh_nodepools.yaml").(*apiextensionsv1.CustomResourceDefinition),
 		mustDecode(crdContent, "crds/karpenter.sh_nodeclaims.yaml").(*apiextensionsv1.CustomResourceDefinition),
-		// TODO(maxcao13): We don't formally support NodeOverlay yet, so don't deploy it
-		// https://redhat.atlassian.net/browse/RFE-9604
-		// mustDecode(crdContent, "crds/karpenter.sh_nodeoverlays.yaml").(*apiextensionsv1.CustomResourceDefinition),
 	}
 
 	AWSCRDs = []*apiextensionsv1.CustomResourceDefinition{
 		mustDecode(crdContent, "crds/karpenter.k8s.aws_ec2nodeclasses.yaml").(*apiextensionsv1.CustomResourceDefinition),
+	}
+
+	AzureRBACAssets = common.RBACAssets{
+		ClusterRoles: []*rbacv1.ClusterRole{
+			mustDecode(azureContent, "azure/clusterrole.yaml").(*rbacv1.ClusterRole),
+		},
+		ClusterRoleBindings: []*rbacv1.ClusterRoleBinding{
+			mustDecode(azureContent, "azure/clusterrolebinding.yaml").(*rbacv1.ClusterRoleBinding),
+		},
+	}
+
+	AzureCRDs = []*apiextensionsv1.CustomResourceDefinition{
+		mustDecode(azureContent, "azure/karpenter.azure.com_aksnodeclasses.yaml").(*apiextensionsv1.CustomResourceDefinition),
+		// TODO(maxcao13): Azure Karpenter Provider requires this CRD to exist, but we don't formally support NodeOverlay yet.
+		// https://redhat.atlassian.net/browse/RFE-9604
+		mustDecode(crdContent, "crds/karpenter.sh_nodeoverlays.yaml").(*apiextensionsv1.CustomResourceDefinition),
 	}
 }

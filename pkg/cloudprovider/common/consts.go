@@ -27,4 +27,10 @@ const (
 	// HealthProbePortEnvName overrides the port the operand binds for
 	// health and readiness probes.
 	HealthProbePortEnvName = "HEALTH_PROBE_PORT"
+
+	// RegionEnvName is the region the operand uses for ...
+	// For AWS, this is the AWS region.
+	// For Azure, this is the Azure location.
+	// For all cloud providers, those details are encapsulated in the REGION environment variable.
+	RegionEnvName = "REGION"
 )

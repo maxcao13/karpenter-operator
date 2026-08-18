@@ -5,6 +5,7 @@
 #   pkg/assets/operator/rbac.yaml    — operator's own RBAC (hand-maintained)
 #   pkg/assets/karpenter/*.yaml      — core operand RBAC
 #   pkg/assets/aws/*.yaml            — AWS operand RBAC
+#   pkg/assets/azure/*.yaml          — Azure operand RBAC
 #
 # The operator SA needs a superset of every operand permission (to satisfy
 # Kubernetes RBAC escalation checks when managing operand Roles/ClusterRoles).
@@ -32,6 +33,7 @@ SA_NAME="karpenter-operator"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ASSETS_DIR="${REPO_ROOT}/pkg/assets/karpenter"
 AWS_ASSETS_DIR="${REPO_ROOT}/pkg/assets/aws"
+AZURE_ASSETS_DIR="${REPO_ROOT}/pkg/assets/azure"
 OPERATOR_RBAC="${REPO_ROOT}/pkg/assets/operator/rbac.yaml"
 INSTALL_RBAC="${REPO_ROOT}/install/04_rbac.yaml"
 MODE="${1:-}"
@@ -58,7 +60,7 @@ collect_rules() {
   echo "$result"
 }
 
-operand_cr_rules=$(collect_rules "${ASSETS_DIR}"/clusterrole-*.yaml "${AWS_ASSETS_DIR}"/clusterrole.yaml)
+operand_cr_rules=$(collect_rules "${ASSETS_DIR}"/clusterrole-*.yaml "${AWS_ASSETS_DIR}"/clusterrole.yaml "${AZURE_ASSETS_DIR}"/clusterrole.yaml)
 operand_role_rules=$(collect_rules "${ASSETS_DIR}"/role.yaml)
 
 # --- Build output -------------------------------------------------------------

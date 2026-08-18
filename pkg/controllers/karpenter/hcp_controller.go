@@ -53,7 +53,7 @@ func NewHCPController(mgr ctrl.Manager, cfg *HCPControllerConfig) *HCPController
 	return &HCPController{
 		client:          mgr.GetClient(),
 		config:          cfg,
-		imagePullPolicy: corev1.PullIfNotPresent,
+		imagePullPolicy: corev1.PullAlways,
 	}
 }
 
@@ -72,7 +72,7 @@ func (c *HCPController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// TODO(maxcao13): for now we always scale up karpenter if an HCP is provisioned (meaning always)
 	// In the future, we need to allow scale to zero based on the HCP AutoNode spec.
 	// https://redhat.atlassian.net/browse/AUTOSCALE-520
-	if hcp.Spec.AutoNode.Provisioner.Name != "Karpenter" {
+	if hcp.Spec.AutoNode.Provisioner.Name != hyperv1.ProvisionerKarpenter {
 		log.FromContext(ctx).V(1).Info("HCP does not use Karpenter provisioner, skipping")
 		return ctrl.Result{}, nil
 	}
@@ -154,6 +154,7 @@ func tokenMinterContainer(image string) corev1.Container {
 		Image:   image,
 		Command: []string{"/usr/bin/control-plane-operator", "token-minter"},
 		Args: []string{
+			"--token-audience=openshift",
 			"--service-account-namespace=kube-system",
 			"--service-account-name=karpenter",
 			"--token-file=" + serviceAccountTokenFilePath,

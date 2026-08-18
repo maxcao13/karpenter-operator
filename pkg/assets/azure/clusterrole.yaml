@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: karpenter
+rules:
+  # Read
+  - apiGroups: ["karpenter.azure.com"]
+    resources: ["aksnodeclasses"]
+    verbs: ["get", "list", "watch"]
+  # Write
+  - apiGroups: ["karpenter.azure.com"]
+    resources: ["aksnodeclasses", "aksnodeclasses/status"]
+    verbs: ["patch", "update"]

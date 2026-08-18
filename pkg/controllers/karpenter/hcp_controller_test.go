@@ -259,6 +259,7 @@ func expectHCPDeployment(g Gomega, dep *appsv1.Deployment) {
 	g.Expect(tokenMinter.Image).To(Equal(hcpTestTokenMinterImage))
 	g.Expect(tokenMinter.Command).To(Equal([]string{"/usr/bin/control-plane-operator", "token-minter"}))
 	g.Expect(tokenMinter.Args).To(ContainElements(
+		"--token-audience=openshift",
 		"--service-account-namespace=kube-system",
 		"--service-account-name=karpenter",
 		"--token-file="+serviceAccountTokenFilePath,
@@ -268,4 +269,64 @@ func expectHCPDeployment(g Gomega, dep *appsv1.Deployment) {
 	g.Expect(*tokenMinter.RestartPolicy).To(Equal(corev1.ContainerRestartPolicyAlways))
 	g.Expect(tokenMinter.StartupProbe).NotTo(BeNil())
 	g.Expect(tokenMinter.StartupProbe.Exec.Command).To(Equal([]string{"cat", serviceAccountTokenFilePath}))
+}
+
+func TestHCPReconcileAzureOperandConfig(t *testing.T) {
+	g := NewWithT(t)
+
+	azureCloudProvider := &testfake.CloudProvider{
+		Image: hcpTestKarpenterImage,
+		CloudConfig: common.OperandCloudConfig{
+			Env: []corev1.EnvVar{
+				{Name: "LOCATION", Value: "eastus"},
+				{Name: "AZURE_CLIENT_ID", Value: "client-id"},
+				{Name: "AZURE_TENANT_ID", Value: "tenant-id"},
+				{Name: "AZURE_SUBSCRIPTION_ID", Value: "subscription-id"},
+				{Name: "AZURE_FEDERATED_TOKEN_FILE", Value: serviceAccountTokenFilePath},
+			},
+		},
+	}
+
+	c := fakeclient.NewClientBuilder().
+		WithScheme(hcpTestScheme()).
+		WithObjects(hcpWithProvisioner(hyperv1.ProvisionerKarpenter)).
+		Build()
+	controller := &HCPController{
+		client: c,
+		config: &HCPControllerConfig{
+			Namespace:        hcpTestNamespace,
+			KarpenterImage:   hcpTestKarpenterImage,
+			ClusterName:      hcpTestClusterName,
+			ClusterEndpoint:  hcpTestClusterEndpoint,
+			CloudProvider:    azureCloudProvider,
+			TokenMinterImage: hcpTestTokenMinterImage,
+		},
+		imagePullPolicy: corev1.PullIfNotPresent,
+	}
+
+	_, err := controller.Reconcile(t.Context(), hcpReconcileRequest())
+	g.Expect(err).NotTo(HaveOccurred())
+
+	dep := &appsv1.Deployment{}
+	g.Expect(controller.client.Get(t.Context(), client.ObjectKey{
+		Namespace: hcpTestNamespace, Name: "karpenter",
+	}, dep)).To(Succeed())
+
+	env := map[string]string{}
+	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+		env[e.Name] = e.Value
+	}
+	g.Expect(env).To(HaveKeyWithValue("LOCATION", "eastus"))
+	g.Expect(env).To(HaveKeyWithValue("AZURE_CLIENT_ID", "client-id"))
+	g.Expect(env).To(HaveKeyWithValue("AZURE_TENANT_ID", "tenant-id"))
+	g.Expect(env).To(HaveKeyWithValue("AZURE_SUBSCRIPTION_ID", "subscription-id"))
+	g.Expect(env).To(HaveKeyWithValue("AZURE_FEDERATED_TOKEN_FILE", serviceAccountTokenFilePath))
+	g.Expect(env).NotTo(HaveKey("AWS_REGION"))
+
+	mountNames := map[string]bool{}
+	for _, m := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+		mountNames[m.Name] = true
+	}
+	g.Expect(mountNames).To(HaveKey(serviceAccountTokenVolumeName))
+	g.Expect(mountNames).NotTo(HaveKey("provider-creds"))
 }
