@@ -81,6 +81,8 @@ To prevent premature merges:
 
 ## Testing
 
+See [TESTING.md](./TESTING.md) for test commands and the Deployment fixture workflow.
+
 - Unit tests are required for new logic, bug fixes, and behavior changes.
   `make test` runs tests under `pkg/`.
 - Component or integration tests are recommended when changing interactions between packages.

@@ -1,7 +1,7 @@
 # AGENTS.md — openshift/karpenter-operator
 
 Guidance for AI agents working in this repository.
-See [README.md](./README.md) for user documentation and [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution workflow.
+See [README.md](./README.md) for user documentation, [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution workflow, and [TESTING.md](./TESTING.md) for test commands and the fixture workflow.
 
 ## Project overview
 
@@ -50,7 +50,7 @@ test/                    E2E suites and shared helpers
    Management-cluster mode deploys operands from `HostedControlPlane` objects and does not register the `ClusterOperator` controller.
 3. Root-module Go commands do not traverse `api/`; run module-specific commands there when needed.
 4. Use `hosted cluster`, not `guest cluster`, for HyperShift terminology.
-5. Follow the test naming and fixture guidance in [CONTRIBUTING.md](./CONTRIBUTING.md) when adding or modifying tests.
+5. Follow the test naming guidance in [CONTRIBUTING.md](./CONTRIBUTING.md) and the fixture workflow in [TESTING.md](./TESTING.md) when adding or modifying tests.
 
 ## Generated files
 
