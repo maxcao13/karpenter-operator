@@ -81,6 +81,11 @@ func (c *OCPController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		return ctrl.Result{}, fmt.Errorf("reconciling RoleBindings: %w", err)
 	}
 
+	logLevel := karp.Spec.LogLevel
+	if logLevel == "" {
+		logLevel = autoscalingv1alpha1.LogLevelInfo
+	}
+
 	cfg := &operandConfig{
 		namespace:       c.config.Namespace,
 		karpenterImage:  c.config.KarpenterImage,
@@ -88,7 +93,9 @@ func (c *OCPController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		clusterEndpoint: c.config.ClusterEndpoint,
 		cloudProvider:   c.config.CloudProvider,
 		imagePullPolicy: c.imagePullPolicy,
-		logLevelArg:     karp.Spec.LogLevel.Arg(),
+		additionalEnv: []corev1.EnvVar{
+			{Name: "LOG_LEVEL", Value: string(logLevel)},
+		},
 	}
 	if err := applyDeployment(ctx, c.client, cfg, ref); err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling Deployment: %w", err)

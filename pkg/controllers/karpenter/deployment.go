@@ -118,7 +118,6 @@ func buildPodSpec(cfg *operandConfig) (*coreac.PodSpecApplyConfiguration, error)
 				WithName(karpenterName).
 				WithImage(cfg.karpenterImage).
 				WithImagePullPolicy(cfg.imagePullPolicy).
-				WithArgs(cfg.logLevelArg).
 				WithEnv(env...).
 				WithPorts(karpenterPorts()...).
 				WithResources(coreac.ResourceRequirements().

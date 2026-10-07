@@ -213,6 +213,7 @@ func TestHCPReconcile(t *testing.T) {
 				replicas := int32(3)
 				dep.Spec.Replicas = &replicas
 				dep.Spec.Template.Spec.Containers[0].Image = "quay.io/mutated/karpenter:wrong"
+				dep.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "LOG_LEVEL", Value: "info"}}
 				dep.Spec.Template.Spec.InitContainers = nil
 				return cl.Update(ctx, dep)
 			},
@@ -332,6 +333,9 @@ func expectHCPDeployment(g Gomega, dep *appsv1.Deployment, infraID string) {
 	g.Expect(podSpec.Containers).To(HaveLen(1))
 	g.Expect(podSpec.Containers[0].Name).To(Equal("karpenter"))
 	g.Expect(podSpec.Containers[0].Image).To(Equal(hcpTestKarpenterImage))
+	g.Expect(podSpec.Containers[0].Command).To(BeEmpty())
+	g.Expect(podSpec.Containers[0].Args).To(BeEmpty())
+	g.Expect(podSpec.Containers[0].Env).To(ContainElement(corev1.EnvVar{Name: "LOG_LEVEL", Value: "debug"}))
 	g.Expect(podSpec.InitContainers).To(HaveLen(1))
 	g.Expect(podSpec.InitContainers[0].Name).To(Equal("token-minter"))
 

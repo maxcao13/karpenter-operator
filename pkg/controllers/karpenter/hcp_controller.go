@@ -104,9 +104,9 @@ func (c *HCPController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		clusterEndpoint: c.config.ClusterEndpoint,
 		cloudProvider:   c.config.CloudProvider,
 		imagePullPolicy: corev1.PullIfNotPresent,
-		logLevelArg:     "--log-level=debug", // TODO(maxcao13): make this configurable
 		releaseVersion:  hcp.Status.ControlPlaneVersion.Desired.Version,
 		additionalEnv: []corev1.EnvVar{
+			{Name: "LOG_LEVEL", Value: "debug"}, // TODO(maxcao13): make this configurable
 			{Name: common.KubeconfigEnvName, Value: targetKubeconfigMountPath + "/" + targetKubeconfigFilePath},
 			{Name: common.DisableLeaderElectionEnvName, Value: "true"},
 		},

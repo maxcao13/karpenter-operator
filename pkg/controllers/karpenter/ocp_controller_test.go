@@ -84,13 +84,13 @@ func karpenterCR(logLevel autoscalingv1alpha1.KarpenterLogLevel) *autoscalingv1a
 
 func TestOCPReconcile(t *testing.T) {
 	tests := []struct {
-		name              string
-		objects           []client.Object
-		expectErr         bool
-		expectOperands    bool
-		expectLogLevelArg string
-		checkRBAC         bool
-		checkPodSpec      bool
+		name           string
+		objects        []client.Object
+		expectErr      bool
+		expectOperands bool
+		expectLogLevel string
+		checkRBAC      bool
+		checkPodSpec   bool
 	}{
 		{
 			name:           "When Karpenter CR does not exist it should not create resources",
@@ -103,28 +103,28 @@ func TestOCPReconcile(t *testing.T) {
 			checkRBAC:      true,
 		},
 		{
-			name:              "When log level is debug it should pass --log-level=debug",
-			objects:           []client.Object{karpenterCR(autoscalingv1alpha1.LogLevelDebug)},
-			expectOperands:    true,
-			expectLogLevelArg: "--log-level=debug",
+			name:           "When log level is debug, it should set LOG_LEVEL=debug",
+			objects:        []client.Object{karpenterCR(autoscalingv1alpha1.LogLevelDebug)},
+			expectOperands: true,
+			expectLogLevel: "debug",
 		},
 		{
-			name:              "When log level is info it should pass --log-level=info",
-			objects:           []client.Object{karpenterCR(autoscalingv1alpha1.LogLevelInfo)},
-			expectOperands:    true,
-			expectLogLevelArg: "--log-level=info",
+			name:           "When log level is info, it should set LOG_LEVEL=info",
+			objects:        []client.Object{karpenterCR(autoscalingv1alpha1.LogLevelInfo)},
+			expectOperands: true,
+			expectLogLevel: "info",
 		},
 		{
-			name:              "When log level is error it should pass --log-level=error",
-			objects:           []client.Object{karpenterCR(autoscalingv1alpha1.LogLevelError)},
-			expectOperands:    true,
-			expectLogLevelArg: "--log-level=error",
+			name:           "When log level is error, it should set LOG_LEVEL=error",
+			objects:        []client.Object{karpenterCR(autoscalingv1alpha1.LogLevelError)},
+			expectOperands: true,
+			expectLogLevel: "error",
 		},
 		{
-			name:              "When log level is empty it should default to --log-level=info",
-			objects:           []client.Object{karpenterCR("")},
-			expectOperands:    true,
-			expectLogLevelArg: "--log-level=info",
+			name:           "When log level is empty, it should default to LOG_LEVEL=info",
+			objects:        []client.Object{karpenterCR("")},
+			expectOperands: true,
+			expectLogLevel: "info",
 		},
 		{
 			name:           "When reconciling it should configure deployment security probes and cloud credentials",
@@ -188,6 +188,8 @@ func TestOCPReconcile(t *testing.T) {
 			g.Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
 			g.Expect(dep.Spec.Template.Spec.Containers[0].Name).To(Equal("karpenter"))
 			g.Expect(dep.Spec.Template.Spec.Containers[0].Image).To(Equal(ocpTestKarpenterImage))
+			g.Expect(dep.Spec.Template.Spec.Containers[0].Command).To(BeEmpty())
+			g.Expect(dep.Spec.Template.Spec.Containers[0].Args).To(BeEmpty())
 
 			podMonitor := &monitoringv1.PodMonitor{}
 			g.Expect(controller.client.Get(ctx, client.ObjectKey{
@@ -195,8 +197,8 @@ func TestOCPReconcile(t *testing.T) {
 			}, podMonitor)).To(Succeed())
 			expectKarpenterPodMonitor(g, podMonitor, "Karpenter", autoscalingv1alpha1.SingletonName)
 
-			if tc.expectLogLevelArg != "" {
-				g.Expect(dep.Spec.Template.Spec.Containers[0].Args).To(ContainElement(tc.expectLogLevelArg))
+			if tc.expectLogLevel != "" {
+				g.Expect(dep.Spec.Template.Spec.Containers[0].Env).To(ContainElement(corev1.EnvVar{Name: "LOG_LEVEL", Value: tc.expectLogLevel}))
 			}
 
 			if tc.checkRBAC {

@@ -183,8 +183,9 @@ var _ = Describe("Resources", Ordered, func() {
 					Namespace: operatorNamespace,
 				}, dep)).To(Succeed())
 
-				args := dep.Spec.Template.Spec.Containers[0].Args
-				g.Expect(args).To(ContainElement("--log-level=debug"))
+				container := dep.Spec.Template.Spec.Containers[0]
+				g.Expect(container.Args).To(BeEmpty())
+				g.Expect(container.Env).To(ContainElement(corev1.EnvVar{Name: "LOG_LEVEL", Value: "debug"}))
 			}, pollOneMinute, pollFiveSecond).Should(Succeed())
 
 			// Restore default for subsequent tests.

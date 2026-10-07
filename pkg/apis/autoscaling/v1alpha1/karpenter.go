@@ -43,13 +43,6 @@ const (
 	LogLevelError KarpenterLogLevel = "error"
 )
 
-func (l KarpenterLogLevel) Arg() string {
-	if l == "" {
-		return "--log-level=" + string(LogLevelInfo)
-	}
-	return "--log-level=" + string(l)
-}
-
 // KarpenterSpec defines the desired state of the Karpenter operand.
 type KarpenterSpec struct {
 	// LogLevel is the log verbosity level. Can be one of 'debug', 'info', or 'error'.
