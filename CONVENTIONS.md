@@ -21,6 +21,19 @@ For new controllers:
 - Log Kubernetes objects directly with descriptive resource keys, or use `"object"` for generic objects. The production Zap encoder records object identity; development mode may include full contents. Avoid dumping large non-Kubernetes values.
 - Use `Error(err, "Message", ...)` for failures that need logging. Prefer returning wrapped reconcile errors over logging them twice; controller-runtime logs returned errors. Wrap with `%w` and concise lowercase operation context: prefer a message like `fmt.Errorf("building deployment: %w", err)` over `fmt.Errorf("failed to build deployment: %w", err)`. The error already indicates failure; repeating `"failed to"` at each wrapping layer adds noise.
 
+## Test conventions
+
+Every Go test case name must follow this format:
+
+```go
+"When <condition>, it should <expected behavior>": {},
+```
+
+Use `map[string]struct{...}` for table-driven tests, with each test case name as its map key.
+
+Use real-world values in test fixtures when possible, such as `quay.io/openshift-release-dev/ocp-release:4.21.10-x86_64` instead of `example.com/image:latest`.
+Real values catch edge cases that synthetic values miss.
+
 ## Code style
 
 - Run `make fmt` for root-module Go changes.

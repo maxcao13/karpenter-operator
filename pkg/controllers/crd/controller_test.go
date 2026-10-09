@@ -54,8 +54,7 @@ func testScheme() *runtime.Scheme {
 }
 
 func TestReconcile(t *testing.T) {
-	tests := []struct {
-		name           string
+	tests := map[string]struct {
 		existingCRDs   []client.Object
 		configuredCRDs []*apiextensionsv1.CustomResourceDefinition
 		hostedCluster  *testfake.Cluster
@@ -63,13 +62,11 @@ func TestReconcile(t *testing.T) {
 		expectCRDCount int
 		expectVersions map[string]string // crd name -> expected first version
 	}{
-		{
-			name:           "When CRDs do not exist it should create them",
+		"When CRDs do not exist, it should create them": {
 			configuredCRDs: testCRDs,
 			expectCRDCount: 2,
 		},
-		{
-			name: "When a CRD already exists it should update it",
+		"When a CRD already exists, it should update it": {
 			existingCRDs: []client.Object{
 				&apiextensionsv1.CustomResourceDefinition{
 					ObjectMeta: metav1.ObjectMeta{Name: "nodepools.karpenter.sh"},
@@ -90,21 +87,19 @@ func TestReconcile(t *testing.T) {
 				"nodepools.karpenter.sh": "v1",
 			},
 		},
-		{
-			name:           "When no CRDs are configured it should be a no-op",
+		"When no CRDs are configured, it should be a no-op": {
 			configuredCRDs: nil,
 			expectCRDCount: 0,
 		},
-		{
-			name:           "When HostedCluster is set it should write CRDs to the hosted cluster only",
+		"When HostedCluster is set, it should write CRDs to the hosted cluster only": {
 			configuredCRDs: testCRDs,
 			hostedCluster:  &testfake.Cluster{Cl: fakeclient.NewClientBuilder().WithScheme(testScheme()).Build(), Ca: &testfake.Cache{}},
 			expectCRDCount: 2,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			g := NewWithT(t)
 
 			var c *Controller

@@ -91,14 +91,7 @@ To prevent premature merges:
 
 ### Test conventions
 
-Every Go test case name must follow this format:
-
-```go
-name: "When <condition>, it should <expected behavior>"
-```
-
-Use real-world values in test fixtures when possible, such as `quay.io/openshift-release-dev/ocp-release:4.21.10-x86_64` instead of `example.com/image:latest`.
-Real values catch edge cases that synthetic values miss.
+See [CONVENTIONS.md](./CONVENTIONS.md#test-conventions) for test naming, table structure, and fixtures.
 
 Before requesting review, run:
 

@@ -53,7 +53,7 @@ test/                    E2E suites and shared helpers
    Management-cluster mode deploys operands from `HostedControlPlane` objects and does not register the `ClusterOperator` controller.
 3. Root-module Go commands do not traverse `api/`; run module-specific commands there when needed.
 4. Use `hosted cluster`, not `guest cluster`, for HyperShift terminology.
-5. Follow the test naming and fixture guidance in [CONTRIBUTING.md](./CONTRIBUTING.md) when adding or modifying tests.
+5. Follow the test naming and fixture guidance in [CONVENTIONS.md](./CONVENTIONS.md#test-conventions) when adding or modifying tests.
 
 ## Generated files
 

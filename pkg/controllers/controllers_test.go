@@ -48,27 +48,23 @@ func (testNodeIdentityVerifier) Verify(_ context.Context, _ string, _ []karpente
 }
 
 func TestNewControllers(t *testing.T) {
-	tests := []struct {
-		name              string
+	tests := map[string]struct {
 		cloudProvider     common.CloudProvider
 		hostedCluster     cluster.Cluster
 		managementCluster bool
 		wantControllers   []string
 	}{
-		{
-			name:              "When running in standalone mode it should enable all controllers",
+		"When running in standalone mode, it should enable all controllers": {
 			cloudProvider:     &testfake.CloudProvider{Image: "test:latest"},
 			managementCluster: false,
 			wantControllers:   []string{"crd", "karpenter", "clusteroperator"},
 		},
-		{
-			name:              "When management mode lacks hosted cluster, it should enable only controllers without hosted-cluster access",
+		"When management mode lacks hosted cluster, it should enable only controllers without hosted-cluster access": {
 			cloudProvider:     &testfake.CloudProvider{Image: "test:latest"},
 			managementCluster: true,
 			wantControllers:   []string{"crd", "karpenter"},
 		},
-		{
-			name: "When running in HCP AWS mode it should also enable the machine approver and NodeClass controllers",
+		"When running in HCP AWS mode, it should also enable the machine approver and NodeClass controllers": {
 			cloudProvider: &testAWSCloudProvider{CloudProvider: &testfake.CloudProvider{
 				Image:        "test:latest",
 				HCPNodeClass: (&cloudaws.Provider{}).HCPNodeClassProvider(),
@@ -77,8 +73,7 @@ func TestNewControllers(t *testing.T) {
 			managementCluster: true,
 			wantControllers:   []string{"crd", "default-nodeclass", "ec2-nodeclass", "karpenter", "karpenter-machine-approver"},
 		},
-		{
-			name:              "When running in HCP Azure mode, it should enable HCP-enabled controllers",
+		"When running in HCP Azure mode, it should enable HCP-enabled controllers": {
 			cloudProvider:     &azure.Provider{},
 			hostedCluster:     &testfake.Cluster{Cl: fakeclient.NewClientBuilder().Build(), Ca: &testfake.Cache{}},
 			managementCluster: true,
@@ -86,8 +81,8 @@ func TestNewControllers(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			cfg := &Config{
 				Namespace:         "openshift-karpenter",
 				KarpenterImage:    "quay.io/openshift/karpenter:latest",

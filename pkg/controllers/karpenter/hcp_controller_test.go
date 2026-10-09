@@ -101,13 +101,11 @@ func TestHCPOperandReconcilePredicate(t *testing.T) {
 	hcp := hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)
 	p := hcpOperandReconcilePredicate()
 
-	tests := []struct {
-		name   string
+	tests := map[string]struct {
 		event  event.UpdateEvent
 		expect bool
 	}{
-		{
-			name: "When only releaseImage changes it should not reconcile",
+		"When only releaseImage changes, it should not reconcile": {
 			event: event.UpdateEvent{
 				ObjectOld: hcp,
 				ObjectNew: func() *hyperv1beta1.HostedControlPlane {
@@ -118,8 +116,7 @@ func TestHCPOperandReconcilePredicate(t *testing.T) {
 			},
 			expect: false,
 		},
-		{
-			name: "When infraID changes it should reconcile",
+		"When infraID changes, it should reconcile": {
 			event: event.UpdateEvent{
 				ObjectOld: hcp,
 				ObjectNew: func() *hyperv1beta1.HostedControlPlane {
@@ -130,8 +127,7 @@ func TestHCPOperandReconcilePredicate(t *testing.T) {
 			},
 			expect: true,
 		},
-		{
-			name: "When autoNode changes it should reconcile",
+		"When autoNode changes, it should reconcile": {
 			event: event.UpdateEvent{
 				ObjectOld: hcp,
 				ObjectNew: func() *hyperv1beta1.HostedControlPlane {
@@ -142,8 +138,7 @@ func TestHCPOperandReconcilePredicate(t *testing.T) {
 			},
 			expect: true,
 		},
-		{
-			name: "When control plane version changes it should reconcile",
+		"When control plane version changes, it should reconcile": {
 			event: event.UpdateEvent{
 				ObjectOld: hcp,
 				ObjectNew: func() *hyperv1beta1.HostedControlPlane {
@@ -156,51 +151,46 @@ func TestHCPOperandReconcilePredicate(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			g := NewWithT(t)
 			g.Expect(p.Update(tc.event)).To(Equal(tc.expect))
 		})
 	}
 
-	t.Run("When HostedControlPlane is created it should reconcile", func(t *testing.T) {
+	t.Run("When HostedControlPlane is created, it should reconcile", func(t *testing.T) {
 		g := NewWithT(t)
 		g.Expect(p.Create(event.CreateEvent{Object: hcp})).To(BeTrue())
 	})
 
-	t.Run("When HostedControlPlane is deleted it should reconcile", func(t *testing.T) {
+	t.Run("When HostedControlPlane is deleted, it should reconcile", func(t *testing.T) {
 		g := NewWithT(t)
 		g.Expect(p.Delete(event.DeleteEvent{Object: hcp})).To(BeTrue())
 	})
 }
 
 func TestHCPReconcile(t *testing.T) {
-	tests := []struct {
-		name            string
+	tests := map[string]struct {
 		objects         []client.Object
 		expectOperands  bool
 		expectedInfraID string
 		mutate          func(context.Context, client.Client) error
 	}{
-		{
-			name:            "When HostedControlPlane does not exist it should not create resources",
+		"When HostedControlPlane does not exist, it should not create resources": {
 			expectOperands:  false,
 			expectedInfraID: hcpTestInfraID,
 		},
-		{
-			name:            "When provisioner is not Karpenter it should not create resources",
+		"When provisioner is not Karpenter, it should not create resources": {
 			objects:         []client.Object{hcpWithProvisioner("")},
 			expectOperands:  false,
 			expectedInfraID: hcpTestInfraID,
 		},
-		{
-			name:            "When HostedControlPlane uses Karpenter it should create operand resources owned by the HCP",
+		"When HostedControlPlane uses Karpenter, it should create operand resources owned by the HCP": {
 			objects:         []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
 			expectOperands:  true,
 			expectedInfraID: hcpTestInfraID,
 		},
-		{
-			name:            "When the karpenter Deployment is mutated it should restore the desired spec",
+		"When the karpenter Deployment is mutated, it should restore the desired spec": {
 			objects:         []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
 			expectOperands:  true,
 			expectedInfraID: hcpTestInfraID,
@@ -217,8 +207,7 @@ func TestHCPReconcile(t *testing.T) {
 				return cl.Update(ctx, dep)
 			},
 		},
-		{
-			name:            "When the karpenter ServiceAccount is mutated it should restore the desired state",
+		"When the karpenter ServiceAccount is mutated, it should restore the desired state": {
 			objects:         []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
 			expectOperands:  true,
 			expectedInfraID: hcpTestInfraID,
@@ -232,8 +221,7 @@ func TestHCPReconcile(t *testing.T) {
 				return cl.Update(ctx, sa)
 			},
 		},
-		{
-			name:            "When the karpenter Deployment is deleted it should recreate it",
+		"When the karpenter Deployment is deleted, it should recreate it": {
 			objects:         []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
 			expectOperands:  true,
 			expectedInfraID: hcpTestInfraID,
@@ -246,8 +234,7 @@ func TestHCPReconcile(t *testing.T) {
 				return cl.Delete(ctx, dep)
 			},
 		},
-		{
-			name:            "When infraID changes it should update the kubeconfig secret reference",
+		"When infraID changes, it should update the kubeconfig secret reference": {
 			objects:         []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
 			expectOperands:  true,
 			expectedInfraID: hcpTestUpdatedInfraID,
@@ -267,8 +254,8 @@ func TestHCPReconcile(t *testing.T) {
 	_ = appsv1.AddToScheme(s)
 	_ = corev1.AddToScheme(s)
 	_ = monitoringv1.AddToScheme(s)
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			g := NewWithT(t)
 
 			c := fakeclient.NewClientBuilder().

@@ -94,7 +94,7 @@ func (c *OCPController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		return ctrl.Result{}, fmt.Errorf("reconciling Deployment: %w", err)
 	}
 	if err := applyPodMonitor(ctx, c.client, cfg, ref); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile PodMonitor: %w", err)
+		return ctrl.Result{}, fmt.Errorf("reconciling PodMonitor: %w", err)
 	}
 
 	return ctrl.Result{}, nil

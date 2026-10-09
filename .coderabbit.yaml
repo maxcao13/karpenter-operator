@@ -49,6 +49,7 @@ knowledge_base:
     filePatterns:
       - "**/AGENTS.md"
       - "**/CONTRIBUTING.md"
+      - "**/CONVENTIONS.md"
       - "hack/MANIFESTS.md"
   learnings:
     scope: auto

@@ -207,7 +207,7 @@ func (r *Controller) approve(ctx context.Context, csr *certificatesv1.Certificat
 
 	_, err := r.certClient.UpdateApproval(ctx, csr.Name, csr, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("error updating approval for csr: %w", err)
+		return fmt.Errorf("updating csr approval: %w", err)
 	}
 
 	return nil

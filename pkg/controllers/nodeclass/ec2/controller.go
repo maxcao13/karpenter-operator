@@ -225,7 +225,7 @@ func deleteIfNeeded(ctx context.Context, c client.Client, o client.Object) (exis
 		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("error getting %T: %w", o, err)
+		return false, fmt.Errorf("getting %T: %w", o, err)
 	}
 	if o.GetDeletionTimestamp() != nil {
 		return true, nil
@@ -234,7 +234,7 @@ func deleteIfNeeded(ctx context.Context, c client.Client, o client.Object) (exis
 		if apierrors.IsNotFound(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("error deleting %T: %w", o, err)
+		return false, fmt.Errorf("deleting %T: %w", o, err)
 	}
 	return true, nil
 }
@@ -462,7 +462,7 @@ func (r *EC2NodeClassReconciler) computeReadyCondition(openshiftNodeClass *opens
 func (r *EC2NodeClassReconciler) reconcileKarpenterSubnetsConfigMap(ctx context.Context, hcp *hyperv1beta1.HostedControlPlane) error { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
 
-	// List all OpenshiftEC2NodeClass resources in guest cluster
+	// List all OpenshiftEC2NodeClass resources in hosted cluster
 	openshiftEC2NodeClassList := &openshiftkarpenterv1.OpenshiftEC2NodeClassList{}
 	if err := r.hostedClient.List(ctx, openshiftEC2NodeClassList); err != nil {
 		return fmt.Errorf("listing OpenshiftEC2NodeClass: %w", err)
