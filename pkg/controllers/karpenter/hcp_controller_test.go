@@ -197,6 +197,7 @@ func TestHCPReconcile(t *testing.T) {
 		expectOperands              bool
 		expectedImageBeforeMutation *string
 		expectedImageAfterMutation  *string
+		securityContextUID          *int64
 		mutate                      func(context.Context, client.Client) error
 		check                       func(Gomega, *appsv1.Deployment, *corev1.ServiceAccount)
 	}{
@@ -220,8 +221,9 @@ func TestHCPReconcile(t *testing.T) {
 			},
 		},
 		"When the karpenter Deployment is mutated, it should restore the desired spec": {
-			objects:        []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
-			expectOperands: true,
+			objects:            []client.Object{hcpWithProvisioner(hyperv1beta1.ProvisionerKarpenter)},
+			expectOperands:     true,
+			securityContextUID: new(int64(1002)),
 			mutate: func(ctx context.Context, cl client.Client) error {
 				dep := &appsv1.Deployment{}
 				key := client.ObjectKey{Namespace: hcpTestNamespace, Name: "karpenter"}
@@ -232,6 +234,9 @@ func TestHCPReconcile(t *testing.T) {
 				dep.Spec.Replicas = &replicas
 				dep.Spec.Template.Spec.Containers[0].Image = "quay.io/mutated/karpenter:wrong"
 				dep.Spec.Template.Spec.InitContainers = nil
+				dep.Spec.Template.Spec.SecurityContext.RunAsUser = new(int64(0))
+				dep.Spec.Template.Spec.SecurityContext.FSGroup = new(int64(0))
+				dep.Spec.Template.Spec.SecurityContext.RunAsNonRoot = new(false)
 				return cl.Update(ctx, dep)
 			},
 			check: func(g Gomega, dep *appsv1.Deployment, _ *corev1.ServiceAccount) {
@@ -239,6 +244,11 @@ func TestHCPReconcile(t *testing.T) {
 				g.Expect(dep.Spec.Template.Spec.Containers).To(HaveLen(1))
 				g.Expect(dep.Spec.Template.Spec.Containers[0].Image).To(Equal(hcpTestKarpenterImage))
 				g.Expect(dep.Spec.Template.Spec.InitContainers).To(ContainElement(HaveField("Name", Equal("token-minter"))))
+				securityContext := dep.Spec.Template.Spec.SecurityContext
+				g.Expect(securityContext).NotTo(BeNil())
+				g.Expect(securityContext.RunAsUser).To(HaveValue(Equal(int64(1002))))
+				g.Expect(securityContext.FSGroup).To(HaveValue(Equal(int64(1002))))
+				g.Expect(securityContext.RunAsNonRoot).To(HaveValue(BeTrue()))
 			},
 		},
 		"When the karpenter ServiceAccount is mutated, it should restore the desired state": {
@@ -335,6 +345,7 @@ func TestHCPReconcile(t *testing.T) {
 
 			cfg := *hcpTestConfig
 			cfg.KarpenterImage = ptr.Deref(tc.configuredImage, cfg.KarpenterImage)
+			cfg.DefaultSecurityContextUID = tc.securityContextUID
 			controller := NewHCPController(c, &cfg)
 
 			ctx := t.Context()
@@ -441,6 +452,11 @@ func TestReconcileDeployment(t *testing.T) {
 		mutate func(*hyperv1beta1.HostedControlPlane, *HCPControllerConfig)
 	}{
 		"When an HCP uses Karpenter, it should render the expected deployment": {},
+		"When a non-root UID is supplied, it should render the expected deployment": {
+			mutate: func(_ *hyperv1beta1.HostedControlPlane, cfg *HCPControllerConfig) {
+				cfg.DefaultSecurityContextUID = new(int64(1002))
+			},
+		},
 		"When HCP deployment inputs change, it should render the updated deployment": {
 			mutate: func(hcp *hyperv1beta1.HostedControlPlane, cfg *HCPControllerConfig) {
 				hcp.Spec.InfraID = "autonode-k8r4p"

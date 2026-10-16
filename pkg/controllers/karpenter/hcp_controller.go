@@ -48,6 +48,9 @@ type HCPControllerConfig struct {
 	ClusterEndpoint  string
 	CloudProvider    common.CloudProvider
 	TokenMinterImage string
+
+	// DefaultSecurityContextUID sets operand pod runAsUser and fsGroup. Nil leaves them to SCC admission.
+	DefaultSecurityContextUID *int64
 }
 
 // HCPController watches HostedControlPlane objects in management cluster mode and
@@ -108,14 +111,15 @@ func (c *HCPController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	cfg := &operandConfig{
-		namespace:       c.config.Namespace,
-		karpenterImage:  karpenterImage,
-		clusterName:     c.config.ClusterName,
-		clusterEndpoint: c.config.ClusterEndpoint,
-		cloudProvider:   c.config.CloudProvider,
-		imagePullPolicy: corev1.PullIfNotPresent,
-		logLevelArg:     "--log-level=debug", // TODO(maxcao13): make this configurable
-		releaseVersion:  hcp.Status.ControlPlaneVersion.Desired.Version,
+		namespace:                 c.config.Namespace,
+		karpenterImage:            karpenterImage,
+		clusterName:               c.config.ClusterName,
+		clusterEndpoint:           c.config.ClusterEndpoint,
+		cloudProvider:             c.config.CloudProvider,
+		imagePullPolicy:           corev1.PullIfNotPresent,
+		logLevelArg:               "--log-level=debug", // TODO(maxcao13): make this configurable
+		releaseVersion:            hcp.Status.ControlPlaneVersion.Desired.Version,
+		defaultSecurityContextUID: c.config.DefaultSecurityContextUID,
 		additionalEnv: []corev1.EnvVar{
 			{Name: common.KubeconfigEnvName, Value: targetKubeconfigMountPath + "/" + targetKubeconfigFilePath},
 			{Name: common.DisableLeaderElectionEnvName, Value: "true"},
