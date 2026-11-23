@@ -1,0 +1,5 @@
+imageFamily: Ubuntu
+osDiskSizeGB: 120
+security:
+  encryptionAtHost: false
+workloadRuntime: OCIContainer

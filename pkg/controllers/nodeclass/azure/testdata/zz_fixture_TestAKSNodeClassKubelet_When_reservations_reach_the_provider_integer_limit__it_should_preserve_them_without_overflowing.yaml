@@ -1,0 +1,15 @@
+imageFamily: Ubuntu
+kubelet:
+  containerLogMaxFiles: 5
+  containerLogMaxSize: 50Mi
+  cpuCFSQuota: true
+  cpuCFSQuotaPeriod: 100ms
+  cpuManagerPolicy: none
+  kubeReserved:
+    cpuMillicores: 2147483647
+    memoryMB: 2147483647
+  topologyManagerPolicy: none
+osDiskSizeGB: 120
+security:
+  encryptionAtHost: false
+workloadRuntime: OCIContainer

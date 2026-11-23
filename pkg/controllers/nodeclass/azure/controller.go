@@ -148,7 +148,10 @@ func (c *NodeClassController) reconcileAKSNodeClass(ctx context.Context, nodeCla
 	aksNodeClass := &azurekarpenterv1beta1.AKSNodeClass{}
 	aksNodeClass.Name = nodeClass.Name
 	op, err := controllerutil.CreateOrUpdate(ctx, c.hostedClient, aksNodeClass, func() error {
-		desired := aksNodeClassSpec(nodeClass.Spec)
+		desired, err := aksNodeClassSpec(nodeClass.Spec)
+		if err != nil {
+			return err
+		}
 		if err := reconcileAKSNodeClassRelease(&desired, aksNodeClass.Spec, nodeClass, hcp, userDataSecret); err != nil {
 			return err
 		}

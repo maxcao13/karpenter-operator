@@ -1,0 +1,6 @@
+imageFamily: Ubuntu
+maxPods: 110
+osDiskSizeGB: 120
+security:
+  encryptionAtHost: false
+workloadRuntime: OCIContainer

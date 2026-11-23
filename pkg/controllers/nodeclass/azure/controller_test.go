@@ -205,6 +205,63 @@ func TestNodeClassControllerReconcileSpecChanges(t *testing.T) {
 	g.Expect(getAKSNodeClass(t, hostedClient).Spec.OSDiskSizeGB).To(Equal(new(int32(512))))
 }
 
+func TestNodeClassControllerReconcileDefaultedSpec(t *testing.T) {
+	tests := map[string]struct {
+		kubelet     openshiftkarpenterv1.KubeletConfiguration
+		wantKubelet bool
+	}{
+		"When the API has defaulted the workload runtime, it should not update an unchanged AKSNodeClass": {
+			wantKubelet: false,
+		},
+		"When the API has defaulted a configured kubelet, it should not update an unchanged AKSNodeClass": {
+			kubelet: openshiftkarpenterv1.KubeletConfiguration{
+				KubeReserved: map[string]string{"cpu": "500m", "memory": "1Gi"},
+				EvictionHard: map[string]openshiftkarpenterv1.EvictionThreshold{"memory.available": "200Mi", "nodefs.available": "10%"},
+			},
+			wantKubelet: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			g := NewWithT(t)
+			nodeClass := newNodeClass()
+			nodeClass.Spec.Kubelet = tc.kubelet
+			hostedClient := fake.NewClientBuilder().
+				WithScheme(nodeClassTestScheme()).
+				WithObjects(nodeClass).
+				WithStatusSubresource(&openshiftkarpenterv1alpha1.OpenShiftAzureNodeClass{}, &azurekarpenterv1beta1.AKSNodeClass{}).
+				Build()
+			c := newTestController(hostedClient, stableHCP(), newUserDataSecret(userData421, marketplaceImage421))
+			req := ctrl.Request{NamespacedName: client.ObjectKey{Name: nodeClassName}}
+			_, err := c.Reconcile(t.Context(), req)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			// The fake client doesn't run CRD defaulting. Store the API-defaulted fields explicitly.
+			aksNodeClass := getAKSNodeClass(t, hostedClient)
+			g.Expect(aksNodeClass.Spec.Kubelet != nil).To(Equal(tc.wantKubelet))
+			aksNodeClass.Spec.WorkloadRuntime = new(azurekarpenterv1beta1.WorkloadRuntimeOCIContainer)
+			if tc.wantKubelet {
+				aksNodeClass.Spec.Kubelet.CPUManagerPolicy = new("none")
+				aksNodeClass.Spec.Kubelet.CPUCFSQuota = new(true)
+				aksNodeClass.Spec.Kubelet.CPUCFSQuotaPeriod = metav1.Duration{Duration: 100 * time.Millisecond}
+				aksNodeClass.Spec.Kubelet.TopologyManagerPolicy = new("none")
+				aksNodeClass.Spec.Kubelet.ContainerLogMaxSize = new("50Mi")
+				aksNodeClass.Spec.Kubelet.ContainerLogMaxFiles = new(int32(5))
+			}
+			g.Expect(hostedClient.Update(t.Context(), aksNodeClass)).To(Succeed())
+			resourceVersion := aksNodeClass.ResourceVersion
+
+			for range 3 {
+				_, err = c.Reconcile(t.Context(), req)
+				g.Expect(err).NotTo(HaveOccurred())
+				got := getAKSNodeClass(t, hostedClient)
+				g.Expect(got.Spec.WorkloadRuntime).To(Equal(new(azurekarpenterv1beta1.WorkloadRuntimeOCIContainer)))
+				g.Expect(got.ResourceVersion).To(Equal(resourceVersion), "unchanged reconciliation must not write the AKSNodeClass")
+			}
+		})
+	}
+}
+
 func TestNodeClassControllerReconcileUserDataSecret(t *testing.T) {
 	tests := map[string]struct {
 		aksNodeClass         *azurekarpenterv1beta1.AKSNodeClass
