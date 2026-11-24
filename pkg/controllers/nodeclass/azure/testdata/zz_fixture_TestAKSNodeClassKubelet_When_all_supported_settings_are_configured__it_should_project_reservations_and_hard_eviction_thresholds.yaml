@@ -1,17 +1,11 @@
 imageFamily: Ubuntu
 kubelet:
-  containerLogMaxFiles: 5
-  containerLogMaxSize: 50Mi
-  cpuCFSQuota: true
-  cpuCFSQuotaPeriod: 100ms
-  cpuManagerPolicy: none
   evictionHard:
     memoryAvailable: 200Mi
     nodeFsAvailable: 10%
   kubeReserved:
     cpuMillicores: 500
     memoryMB: 1024
-  topologyManagerPolicy: none
 maxPods: 110
 osDiskSizeGB: 120
 security:

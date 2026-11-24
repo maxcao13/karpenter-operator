@@ -155,18 +155,20 @@ test: ## Run unit tests.
 	go test ./pkg/... ./test/schema/runner/... -count=1
 
 .PHONY: test-schema
-test-schema: $(SETUP_ENVTEST) ## Run NodeClass CRD schema tests against OpenShift kube-apiserver versions.
+test-schema: $(SETUP_ENVTEST) ## Run NodeClass schema and Azure reconciliation tests against OpenShift kube-apiserver versions.
 	@failed=""; \
 	for version in $(SCHEMA_TEST_K8S_VERSIONS); do \
-		echo "==> Running schema tests against kube-apiserver $$version"; \
-		KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $$version --index $(ENVTEST_OCP_INDEX) --bin-dir $(ENVTEST_ASSETS_DIR) -p path)" \
+		echo "==> Running NodeClass tests against kube-apiserver $$version"; \
+		assets="$$($(SETUP_ENVTEST) use $$version --index $(ENVTEST_OCP_INDEX) --bin-dir $(ENVTEST_ASSETS_DIR) -p path)"; \
+		KUBEBUILDER_ASSETS="$$assets" \
 			SCHEMA_TEST_K8S_VERSION="$$version" \
 			go test -tags envtest ./test/schema -count=1 -timeout 30m -v \
 			$(if $(ARTIFACT_DIR),--ginkgo.junit-report="$(ARTIFACT_DIR)/junit_schema_$$version.xml") \
-			&& echo "==> Schema tests passed against kube-apiserver $$version" \
-			|| { echo "==> Schema tests FAILED against kube-apiserver $$version"; failed="$$failed $$version"; }; \
+			&& KUBEBUILDER_ASSETS="$$assets" go test -tags envtest ./pkg/controllers/nodeclass/azure -count=1 -timeout 5m -v \
+			&& echo "==> NodeClass tests passed against kube-apiserver $$version" \
+			|| { echo "==> NodeClass tests FAILED against kube-apiserver $$version"; failed="$$failed $$version"; }; \
 	done; \
-	if [ -n "$$failed" ]; then echo "Schema tests failed against kube-apiserver:$$failed"; exit 1; fi
+	if [ -n "$$failed" ]; then echo "NodeClass tests failed against kube-apiserver:$$failed"; exit 1; fi
 
 .PHONY: e2e
 e2e: ## Run e2e tests (requires KUBECONFIG).

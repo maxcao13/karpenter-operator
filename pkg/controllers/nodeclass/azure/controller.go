@@ -155,6 +155,18 @@ func (c *NodeClassController) reconcileAKSNodeClass(ctx context.Context, nodeCla
 		if err := reconcileAKSNodeClassRelease(&desired, aksNodeClass.Spec, nodeClass, hcp, userDataSecret); err != nil {
 			return err
 		}
+		// Preserve provider defaults and other kubelet settings, but replace or clear
+		// the groups projected from the wrapper so removed settings don't survive.
+		if aksNodeClass.Spec.Kubelet != nil {
+			kubelet := aksNodeClass.Spec.Kubelet.DeepCopy()
+			kubelet.KubeReserved = nil
+			kubelet.EvictionHard = nil
+			if desired.Kubelet != nil {
+				kubelet.KubeReserved = desired.Kubelet.KubeReserved
+				kubelet.EvictionHard = desired.Kubelet.EvictionHard
+			}
+			desired.Kubelet = kubelet
+		}
 		aksNodeClass.Spec = desired
 		return controllerutil.SetControllerReference(nodeClass, aksNodeClass, c.hostedClient.Scheme())
 	})

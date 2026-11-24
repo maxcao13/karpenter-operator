@@ -21,7 +21,7 @@ Controller selection is centralized in [`pkg/controllers/controllers.go`](./pkg/
 - `pkg/controllers/nodeclass/default` reconciles a provider-supplied default NodeClass from `HostedControlPlane` configuration in management-cluster mode. It requires a hosted-cluster client and provider support for hosted-control-plane NodeClasses.
 - `pkg/controllers/nodeclass/ec2` is selected through the AWS NodeClass provider under those same conditions. It reconciles hosted-cluster `OpenshiftEC2NodeClass` resources into operand-facing `EC2NodeClass` resources.
 - `pkg/controllers/nodeclass/ec2/subnet` aggregates resolved EC2 NodeClass subnet IDs into the management-cluster `karpenter-subnets` ConfigMap.
-- `pkg/controllers/nodeclass/azure` is selected through the Azure NodeClass provider under those same conditions. It reconciles hosted-cluster `OpenShiftAzureNodeClass` resources into operand-facing `AKSNodeClass` resources.
+- `pkg/controllers/nodeclass/azure` is selected through the Azure NodeClass provider under those same conditions. It reconciles hosted-cluster `OpenShiftAzureNodeClass` resources into operand-facing `AKSNodeClass` resources. It preserves existing provider-defaulted kubelet fields while reconciling projected reservations and eviction thresholds.
 - `pkg/controllers/nodeclass/vap` reconciles a cloud-provider-configured `ValidatingAdmissionPolicy` and binding that prevent direct changes to operand-facing NodeClasses in the hosted cluster.
 - `pkg/controllers/machineapprover` approves CSRs for Karpenter-provisioned nodes in management-cluster mode, when a hosted-cluster client and a provider-supplied node identity verifier are available.
 

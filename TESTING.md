@@ -10,7 +10,7 @@ See [CONVENTIONS.md](./CONVENTIONS.md#test-conventions) for test naming, table s
 - End-to-end tests are expected for new features and significant behavior changes.
   `make e2e` requires access to a cluster through `KUBECONFIG`.
 - `make karpenter-core-regression` runs the Karpenter core regression suite in the OpenShift Hosted Control Plane CI environment.
-- `make test-schema` runs NodeClass CRD schema tests against OpenShift kube-apiserver versions through envtest and needs no cluster.
+- `make test-schema` runs NodeClass CRD schema tests and Azure NodeClass reconciliation tests against OpenShift kube-apiserver versions through envtest and needs no cluster.
 - `make verify` runs vet, lint, unit tests, generation, manifest checks, and verifies that the working tree remains clean.
 
 ## Before submitting
@@ -52,6 +52,7 @@ git diff -- pkg/controllers/karpenter/testdata/
 ## Schema tests
 
 The schema tests apply the generated NodeClass CRDs in [`pkg/assets/hypershift/`](./pkg/assets/hypershift/) to real etcd and kube-apiserver binaries from the OpenShift envtest index.
+The same target runs Azure NodeClass reconciliation tests against the synced `AKSNodeClass` CRD to exercise default preservation, projected field removal, and reconciliation of existing objects.
 `SCHEMA_TEST_K8S_VERSIONS` lists the versions; the oldest, 1.35, is OCP 4.22, the oldest supported release.
 
 ```shell

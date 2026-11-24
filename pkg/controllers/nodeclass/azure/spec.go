@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"math"
-	"time"
 
 	openshiftkarpenterv1 "github.com/openshift/karpenter-operator/api/karpenter/v1"
 	openshiftkarpenterv1alpha1 "github.com/openshift/karpenter-operator/api/karpenter/v1alpha1"
@@ -14,7 +13,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	azurekarpenterv1beta1 "github.com/Azure/karpenter-provider-azure/pkg/apis/v1beta1"
 	"github.com/samber/lo"
@@ -42,8 +40,7 @@ func aksNodeClassSpec(spec openshiftkarpenterv1alpha1.OpenShiftAzureNodeClassSpe
 		// The image family doesn't select the image in OpenShift mode. It's set to the CRD default because it's part
 		// of the drift hash: if it were unset, every update would store the current CRD default, and a changed
 		// default would drift all nodes.
-		ImageFamily: new(azurekarpenterv1beta1.UbuntuImageFamily),
-		// Match API defaulting so CreateOrUpdate doesn't repeatedly remove the runtime.
+		ImageFamily:     new(azurekarpenterv1beta1.UbuntuImageFamily),
 		WorkloadRuntime: new(azurekarpenterv1beta1.WorkloadRuntimeOCIContainer),
 		OSDiskSizeGB:    new(cmp.Or(spec.OSDiskSizeGiB, defaultOSDiskSizeGiB)),
 		Tags:            spec.Tags,
@@ -67,16 +64,7 @@ func aksKubeletConfiguration(kubelet openshiftkarpenterv1.KubeletConfiguration) 
 	if reserved == nil && eviction.MemoryAvailable == nil && eviction.NodeFsAvailable == nil {
 		return nil, nil
 	}
-	// Match nested CRD defaults, too, because reconciliation replaces the entire spec.
-	config := &azurekarpenterv1beta1.KubeletConfiguration{
-		KubeReserved:          reserved,
-		CPUManagerPolicy:      new("none"),
-		CPUCFSQuota:           new(true),
-		CPUCFSQuotaPeriod:     metav1.Duration{Duration: 100 * time.Millisecond},
-		TopologyManagerPolicy: new("none"),
-		ContainerLogMaxSize:   new("50Mi"),
-		ContainerLogMaxFiles:  new(int32(5)),
-	}
+	config := &azurekarpenterv1beta1.KubeletConfiguration{KubeReserved: reserved}
 	if eviction.MemoryAvailable != nil || eviction.NodeFsAvailable != nil {
 		config.EvictionHard = &eviction
 	}
