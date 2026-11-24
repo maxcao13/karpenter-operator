@@ -124,8 +124,8 @@ require (
 
 replace github.com/aws/karpenter-provider-aws => github.com/openshift/aws-karpenter-provider-aws v0.0.0-20261112094635-8b75b8bea437
 
-replace github.com/Azure/karpenter-provider-azure => github.com/openshift/Azure-karpenter-provider-azure v0.0.0-20261124163210-e2d382d83c97
+replace github.com/Azure/karpenter-provider-azure => github.com/maxcao13/karpenter-provider-azure v0.0.0-20261124192615-5d5a529c7c59
 
-replace sigs.k8s.io/karpenter => github.com/openshift/kubernetes-sigs-karpenter v0.0.0-20261110172752-280f26969b1f
+replace sigs.k8s.io/karpenter => github.com/maxcao13/karpenter v0.0.0-20261123115514-6217883b4549
 
 replace github.com/openshift/karpenter-operator/api => ./api
